@@ -1,17 +1,23 @@
 // Workshop Scene Loader — an Owlbear Rodeo extension (panel).
 // Turns "War Table" scene text (positions in grid squares) into Owlbear items, and back,
 // and gives the GM control over what players can see: exact HP, revealed condition, hidden pieces.
-import OBR, { buildShape, buildText, buildImage } from "./obr-sdk.js?v=20";
+import OBR, { buildShape, buildText, buildImage } from "./obr-sdk.js?v=21";
 import {
   OBJ, CHILD, ROLE, SCENE, ROOM, HP_VIS, DEFAULT_CONDITIONS, LABEL_GAP, LABEL_SIZE,
   normKey, sortConditions, detectCondition, hpVisibleTo, sharedLabel, pieceBox,
-} from "./common.js?v=20";
+} from "./common.js?v=21";
 
 const COLORS = { bloom: "#5ca014", cyan: "#40d0e6", ember: "#f05050", brass: "#f0c83c", steel: "#8c90a0", white: "#f5f5f5", blue: "#5a96e6", violet: "#a070dc" };
 const col = (c) => COLORS[c] || c || "#f5f5f5";
 const $ = (id) => document.getElementById(id);
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : "i" + Math.random().toString(36).slice(2));
-function say(t) { $("msg").textContent = t; clearTimeout(say.t); say.t = setTimeout(() => ($("msg").textContent = ""), 6000); }
+// Messages show as an Owlbear pop-up (always visible) and at the bottom of the panel.
+function say(t, variant) {
+  if (!t) return;
+  $("msg").textContent = t; clearTimeout(say.t); say.t = setTimeout(() => ($("msg").textContent = ""), 6000);
+  try { OBR.notification.show(t, variant || "DEFAULT"); } catch (e) {}
+}
+const why = (e) => (e && (e.message || e.error?.message || (typeof e === "string" ? e : ""))) || "unknown error";
 function seeded(str) { let h = 2166136261; for (const ch of String(str)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return () => { h ^= h << 13; h ^= h >>> 17; h ^= h << 5; return ((h >>> 0) % 10000) / 10000; }; }
 const round = (v) => Math.round(v * 100) / 100;
 const el = (tag, props = {}, ...kids) => { const e = document.createElement(tag); for (const [k, v] of Object.entries(props)) { if (k === "class") e.className = v; else if (k.startsWith("on")) e[k] = v; else if (v !== undefined && v !== null && v !== false) e.setAttribute(k, v === true ? "" : v); } e.append(...kids.filter((k) => k !== null && k !== undefined && k !== false)); return e; };
@@ -408,8 +414,8 @@ function detail(it) {
     const imgRow = el("div", { class: "row" });
     if (libEntry) imgRow.append(el("img", { class: "thumb", src: libEntry.url, alt: "" }));
     imgRow.append(
-      el("button", { class: "small", onclick: async () => { try { const img = await pickFromAssets(); if (!img) return; const n = await linkImage(m.label || m.id, img); say(`Linked. ${n} piece${n === 1 ? "" : "s"} now use the image.`); } catch (e) { say("Couldn't open your Owlbear images."); } } }, libEntry ? "Change image" : "Choose image"),
-      el("button", { class: "small", onclick: async () => { const img = await pickFromSelection(); if (!img) { say("Select an image on the map first (click it), then press this."); return; } const n = await linkImage(m.label || m.id, img); say(`Linked. ${n} piece${n === 1 ? "" : "s"} now use the image.`); } }, "Use selected"));
+      el("button", { class: "small", onclick: async () => { try { const img = await pickFromAssets(); if (!img) return; const n = await linkImage(m.label || m.id, img); say(`Linked. ${n} piece${n === 1 ? "" : "s"} now use the image.`, "SUCCESS"); } catch (e) { console.error("[Workshop] image picker:", e); say("Couldn't link the image: " + why(e), "ERROR"); } } }, libEntry ? "Change image" : "Choose image"),
+      el("button", { class: "small", onclick: async () => { try { const img = await pickFromSelection(); if (!img) { say("Select an image on the map first (click it), then press this.", "WARNING"); return; } const n = await linkImage(m.label || m.id, img); say(`Linked. ${n} piece${n === 1 ? "" : "s"} now use the image.`, "SUCCESS"); } catch (e) { console.error("[Workshop] link:", e); say("Couldn't link the image: " + why(e), "ERROR"); } } }, "Use selected"));
     if (m.img) imgRow.append(el("button", { class: "small", onclick: async () => { await rebuildPiece(id, { img: null, noImg: true }); say("Back to the drawn piece. The image stays in Linked images."); } }, "Remove"));
     else if (m.noImg && room.images[normKey(m.label)]) imgRow.append(el("button", { class: "small", onclick: async () => { await rebuildPiece(id, { img: normKey(m.label), noImg: false }); } }, "Use linked image"));
     box.append(el("div", {}, el("div", { class: "lbl" }, "Image" + (m.label ? ` (linked to the name “${m.label}”)` : "")), imgRow));
@@ -515,14 +521,18 @@ OBR.onReady(async () => {
   };
 
   // Linked images
+  // The name is optional when picking from Owlbear images: the image's own name is used instead.
   const libLink = async (getter, emptyMsg) => {
-    const name = $("libName").value.trim();
-    if (!name) { say("Type the name first, exactly as it appears on the map (for example Mei)."); $("libName").focus(); return; }
-    let img; try { img = await getter(); } catch (e) { img = null; }
-    if (!img) { if (emptyMsg) say(emptyMsg); return; }
-    const n = await linkImage(name, img);
-    $("libName").value = "";
-    say(`Linked “${name}”.` + (n ? ` ${n} piece${n === 1 ? "" : "s"} on the map now use it.` : " It will be used the next time a piece with that name is built."));
+    let img;
+    try { img = await getter(); } catch (e) { console.error("[Workshop] image picker:", e); say("Couldn't get the image: " + why(e), "ERROR"); return; }
+    if (!img) { if (emptyMsg) say(emptyMsg, "WARNING"); return; }
+    const name = $("libName").value.trim() || img.name || "";
+    if (!name) { say("Type the name to link this image to (for example Mei), then try again.", "WARNING"); $("libName").focus(); return; }
+    try {
+      const n = await linkImage(name, img);
+      $("libName").value = "";
+      say(`Linked “${name}”.` + (n ? ` ${n} piece${n === 1 ? "" : "s"} on the map now use it.` : " It will be used the next time a piece with that name is built."), "SUCCESS");
+    } catch (e) { console.error("[Workshop] link:", e); say("Couldn't save the link: " + why(e), "ERROR"); }
   };
   $("libPick").onclick = () => libLink(pickFromAssets, "");
   $("libSel").onclick = () => libLink(pickFromSelection, "Select an image on the map first (click it), then press this.");
