@@ -2,7 +2,7 @@
   "name": "Workshop Scene Loader",
   "version": "2.0.1",
   "manifest_version": 1,
-  "description": "Builds Claude's battle maps with GM control over hidden pieces, HP visibility, conditions and images.",
+  "description": "Builds battlemaps.",
   "author": "Meta",
   "icon": "https://glitchednovels-tech.github.io/workshop-scene-loader/icon.svg",
   "background_url": "https://glitchednovels-tech.github.io/workshop-scene-loader/background.html",
