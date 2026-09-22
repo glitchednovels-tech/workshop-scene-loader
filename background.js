@@ -1,8 +1,9 @@
 // Runs on every screen in the room (GM and players).
 // Draws the exact-HP line under each piece, only on screens allowed to see it.
 // These labels are "local" items: they exist on this screen alone and are never shared.
-import OBR, { buildText } from "./obr-sdk.js?v=22";
-import { KEY, OBJ, HPL, LABEL_GAP, LABEL_SIZE, hpVisibleTo, hpColour, pieceBox, sharedLabel } from "./common.js?v=22";
+import OBR, { buildText } from "./obr-sdk.js?v=30";
+import { KEY, OBJ, CHILD, HPL, LABEL_GAP, LABEL_SIZE, hpVisibleTo, hpColour, pieceBox, sharedLabel } from "./common.js?v=30";
+import { openCombatWindow } from "./pieces.js?v=30";
 
 let me = { id: "", name: "", role: "PLAYER" };
 let timer = null, running = false, again = false;
@@ -71,7 +72,18 @@ OBR.onReady(async () => {
   OBR.contextMenu.create({
     id: KEY + "/use-image",
     icons: [{ icon: BASE + "icon-image.svg", label: "What should use this image?", filter: { roles: ["GM"], max: 1, every: [{ key: "type", value: "IMAGE" }] } }],
-    embed: { url: BASE + "use-image.html?v=22", height: 440 },
+    embed: { url: BASE + "use-image.html?v=30", height: 440 },
+  }).catch((e) => console.warn("[Workshop] context menu:", e));
+  // Right-click any token → open it in the combat window (adds it to combat if it isn't in yet).
+  OBR.contextMenu.create({
+    id: KEY + "/combat",
+    icons: [{ icon: BASE + "icon-combat.svg", label: "Combat: open or add", filter: { roles: ["GM"], max: 1 } }],
+    onClick: (ctx) => {
+      const it = ctx.items[0]; if (!it) return;
+      const id = it.metadata && !it.metadata[OBJ] && it.metadata[CHILD] ? it.metadata[CHILD] : it.id;
+      const inCombat = !!(it.metadata && it.metadata[OBJ] && it.metadata[OBJ].cbt);
+      openCombatWindow({ id, add: !inCombat }).catch((e) => console.warn("[Workshop] combat window:", e));
+    },
   }).catch((e) => console.warn("[Workshop] context menu:", e));
   me = { id: await OBR.player.getId(), name: await OBR.player.getName(), role: await OBR.player.getRole() };
   OBR.player.onChange((p) => {

@@ -1,8 +1,8 @@
 // "What should use this image?" — opened from the right-click menu of an image on the map (GM only).
 // Lists every loaded piece; the ticked ones are rebuilt to use the image, keeping their layer, size, lock and visibility.
-import OBR from "./obr-sdk.js?v=22";
-import { OBJ } from "./common.js?v=22";
-import { loadRoom, applyImage, rebuildPiece, imageOf } from "./pieces.js?v=22";
+import OBR from "./obr-sdk.js?v=30";
+import { OBJ } from "./common.js?v=30";
+import { loadRoom, applyImage, rebuildPiece, imageOf } from "./pieces.js?v=30";
 
 const $ = (id) => document.getElementById(id);
 const TYPE_NAME = { token: "Character", bloom: "Bloom", rect: "Wall", zone: "Zone", mat: "Floor", grenade: "Grenade", shield: "Shield", prop: "Prop", item: "Item" };
@@ -79,7 +79,7 @@ async function load() {
   $("thumb").src = img.url;
   $("sub").textContent = (src.name ? `“${src.name}”. ` : "") + "Tick the pieces, then press Apply.";
   await loadRoom();
-  pieces = (await OBR.scene.items.getItems((i) => i.metadata && i.metadata[OBJ] && i.metadata[OBJ].type !== "text" && i.id !== src.id))
+  pieces = (await OBR.scene.items.getItems((i) => i.metadata && i.metadata[OBJ] && i.metadata[OBJ].type !== "text" && !i.metadata[OBJ].adopted && i.id !== src.id))
     .sort((a, b) => GROUPS.findIndex((g) => g[0] === groupOf(a.metadata[OBJ])) - GROUPS.findIndex((g) => g[0] === groupOf(b.metadata[OBJ])) || nameOf(a).localeCompare(nameOf(b), undefined, { numeric: true }));
   using = new Set(pieces.filter((p) => (p.metadata[OBJ].imgData || {}).url === img.url).map((p) => p.id));
   ticked = new Set(using);

@@ -1,6 +1,6 @@
 // Shared piece building and editing, used by the panel (loader.js) and the image menu (use-image.js).
-import OBR, { buildShape, buildText, buildImage } from "./obr-sdk.js?v=22";
-import { OBJ, CHILD, ROLE, ROOM, LABEL_GAP, LABEL_SIZE, normKey, sortConditions, sharedLabel, pieceBox } from "./common.js?v=22";
+import OBR, { buildShape, buildText, buildImage } from "./obr-sdk.js?v=30";
+import { OBJ, CHILD, ROLE, ROOM, LABEL_GAP, LABEL_SIZE, normKey, sortConditions, sharedLabel, pieceBox } from "./common.js?v=30";
 
 const COLORS = { bloom: "#5ca014", cyan: "#40d0e6", ember: "#f05050", brass: "#f0c83c", steel: "#8c90a0", white: "#f5f5f5", blue: "#5a96e6", violet: "#a070dc" };
 const col = (c) => COLORS[c] || c || "#f5f5f5";
@@ -234,4 +234,22 @@ export async function applyImage(ids, img, remember = true) {
     out.push(await rebuildPiece(it.id, { img: remember ? pieceKey(m, it.id) : null, imgData: entry, noImg: false }));
   }
   return out;
+}
+
+/* ---------- Combat window ---------- */
+const BASE = new URL(".", import.meta.url).href;
+export const COMBAT_POPOVER = "com.workshop.scene-loader/combat-window";
+// Opens the docked combat window on the right (or leaves it alone if it's already open).
+export async function openCombatWindow(focus) {
+  const already = await OBR.popover.getWidth(COMBAT_POPOVER).catch(() => undefined);
+  if (!already) {
+    const vw = await OBR.viewport.getWidth(), vh = await OBR.viewport.getHeight();
+    await OBR.popover.open({
+      id: COMBAT_POPOVER, url: BASE + "combat.html?v=30", width: Math.min(500, vw - 40), height: Math.max(420, vh - 96),
+      anchorReference: "POSITION", anchorPosition: { left: vw - 12, top: 64 },
+      anchorOrigin: { horizontal: "RIGHT", vertical: "TOP" }, transformOrigin: { horizontal: "RIGHT", vertical: "TOP" },
+      disableClickAway: true, marginThreshold: 8,
+    });
+  }
+  if (focus) setTimeout(() => OBR.broadcast.sendMessage("com.workshop.scene-loader/combat-focus", focus, { destination: "LOCAL" }).catch(() => {}), already ? 0 : 1500);
 }

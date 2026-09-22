@@ -11,6 +11,14 @@ Manifest address: `https://glitchednovels-tech.github.io/workshop-scene-loader/m
 - **Images on pieces.** Drag an image onto the map, right-click it, and choose **What should use this image?** Tick every piece that should use it: walls, props, characters, anything. Each ticked piece becomes the image and keeps its layer, size, lock and hidden state. Walls and floors stretch the image to fill their area; everything else fits inside its square. Untick a piece to put its drawing back. With "Also use it in future scenes" on, the piece's name is remembered, so scenes built later use the image too. A piece's card also has **Use selected image** and **Remove**.
 - **Click a piece on the map** and its card opens in the panel.
 
+## Combat (3.0)
+Press **Open combat window** in the panel (or right-click a token → **Combat: open or add**). A window docks on the right:
+- **Order:** add selected tokens (any token), pick their sheet, then use Manual order (▲▼) or Initiative (type `18` or `1d20(14)+8`, or roll for everyone). Groups like the Bloom share one turn. **Start combat.**
+- **Header:** ROUND n · TURN n — NAME, and **END TURN**. A turn only ends when you press it. End-of-turn effects run first, then the next creature's start-of-turn effects (regeneration, upkeep, shields expiring, areas they start inside). Its sheet opens and its token is selected.
+- **Turn:** the active creature's HP, every resource pool (edit with − + =), modes (turret, laser walls…), actions, reactions, turn effects, passives and conditions.
+- **Attack:** pick the action and targets. Type `1d20(15)+17` for a die rolled at the table. The natural die decides crits: a natural 20 always hits and doubles the dice. Penetration and shield-ignoring go against the target's real Armor. On a hit, the **reaction window** opens: the target's reactions, or a quick adjustment (`+10 Armor`, `Negate 50% Damage`, `Reduce Damage by 25`, redirect, dodge…). Then roll damage, preview it through DR, resistances, shields and pools, and **Apply**. Chains, drains and stacks follow the sheet. **Undo** is in the log.
+- **Library:** paste the combat pack from the vault (Combat Sheets → Combat Pack). It's kept in your browser only, never in this public repo. Set the natural 1 rule and the damage order here.
+
 ## Scene text additions
 `"hidden": true` · `"hpVis": "gm" | "some" | "all"` · `"shown": "Bloodied"` · `"image": "mei"` (use a linked image under a different name)
 

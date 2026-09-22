@@ -1,12 +1,12 @@
 // Workshop Scene Loader — an Owlbear Rodeo extension (panel).
 // Turns "War Table" scene text (positions in grid squares) into Owlbear items, and back,
 // and gives the GM control over what players can see: exact HP, revealed condition, hidden pieces.
-import OBR from "./obr-sdk.js?v=22";
-import { OBJ, CHILD, SCENE, HP_VIS, DEFAULT_CONDITIONS, normKey, sortConditions, detectCondition, hpVisibleTo } from "./common.js?v=22";
+import OBR from "./obr-sdk.js?v=30";
+import { OBJ, CHILD, SCENE, HP_VIS, DEFAULT_CONDITIONS, normKey, sortConditions, detectCondition, hpVisibleTo } from "./common.js?v=30";
 import {
   room, loadRoom, saveRoom, conditions, CREATURE, pieceKey, buildPiece, canBeDead, itemToObj,
-  setPiece, syncDecor, setHidden, rebuildPiece as rebuildRaw, pickFromSelection, linkImage, applyImage,
-} from "./pieces.js?v=22";
+  setPiece, syncDecor, setHidden, rebuildPiece as rebuildRaw, pickFromSelection, linkImage, applyImage, openCombatWindow,
+} from "./pieces.js?v=30";
 const $ = (id) => document.getElementById(id);
 // Rebuilding gives a piece a new id; keep its card open.
 async function rebuildPiece(id, patch) { const nid = await rebuildRaw(id, patch); if (nid && openIds.has(id)) { openIds.delete(id); openIds.add(nid); } return nid; }
@@ -211,8 +211,8 @@ function detail(it) {
       el("button", { class: "small", onclick: () => { const n = Math.round(+maxIn.value); if (n > 0) setPiece(id, { maxHp: n, hp: n, hpVis: m.hpVis || room.defaultHpVis || "gm" }); } }, "Start tracking"))));
   }
 
-  // Image
-  if (m.type !== "text") {
+  // Image (not for your own tokens that joined combat: they already are images)
+  if (m.type !== "text" && !m.adopted) {
     const cur = m.imgData || (m.img && room.images[m.img]);
     const key = pieceKey(m, id);
     const imgRow = el("div", { class: "row" });
@@ -282,6 +282,16 @@ OBR.onReady(async () => {
   OBR.scene.items.onChange(() => scheduleRender());
   $("showAll").onchange = () => scheduleRender();
 
+  $("combatBtn").onclick = () => openCombatWindow().catch((e) => say("Couldn't open the combat window: " + why(e), "ERROR"));
+  const showCombat = async () => {
+    try {
+      const c = (await OBR.scene.getMetadata())["com.workshop.scene-loader/combat"];
+      const slot = c && c.active ? (c.slots || [])[c.turn] : null;
+      $("combatStatus").textContent = slot ? `Round ${c.round} · Turn ${c.turn + 1} — ${slot.name}` : (c && (c.slots || []).length ? `${c.slots.length} in the order · not started` : "Not started");
+    } catch (e) {}
+  };
+  OBR.scene.onMetadataChange(showCombat); if (await OBR.scene.isReady()) showCombat(); OBR.scene.onReadyChange((r) => r && showCombat());
+
   $("buildBtn").onclick = async () => {
     let scene;
     try { scene = JSON.parse($("sceneIn").value); } catch (e) { say("That text isn't valid scene text. Copy the whole block Claude gave you, including the first { and last }."); return; }
@@ -313,10 +323,15 @@ OBR.onReady(async () => {
     catch (e) { say("Couldn't load the example file."); }
   };
   $("clearBtn").onclick = async () => {
-    const mine = await OBR.scene.items.getItems((i) => i.metadata && (i.metadata[OBJ] || i.metadata[CHILD]));
-    if (!mine.length) { say("There are no loaded pieces to remove."); return; }
-    await OBR.scene.items.deleteItems(mine.map((i) => i.id));
-    say(`Removed ${mine.length} items.`);
+    const all = await OBR.scene.items.getItems((i) => i.metadata && (i.metadata[OBJ] || i.metadata[CHILD]));
+    const adopted = all.filter((i) => i.metadata[OBJ] && i.metadata[OBJ].adopted);
+    const adoptedIds = new Set(adopted.map((i) => i.id));
+    const mine = all.filter((i) => !adoptedIds.has(i.id));
+    if (!mine.length && !adopted.length) { say("There are no loaded pieces to remove."); return; }
+    if (mine.length) await OBR.scene.items.deleteItems(mine.map((i) => i.id));
+    // tokens you placed yourself that joined combat: keep them, just forget the add-on's data
+    if (adopted.length) await OBR.scene.items.updateItems([...adoptedIds], (ds) => { for (const d of ds) delete d.metadata[OBJ]; });
+    say(`Removed ${mine.length} items.` + (adopted.length ? ` Your own ${adopted.length} token${adopted.length === 1 ? " was" : "s were"} kept.` : ""));
   };
   $("exportBtn").onclick = async () => {
     try {

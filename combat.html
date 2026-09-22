@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workshop Combat</title>
+<style>
+  :root{ --bg:#1b1d2a; --panel:#23263a; --panel2:#2b2f46; --line:#3b4058; --ink:#e9ebf2; --ink2:#a9aec4; --ink3:#868ba5; --cyan:#40d0e6; --green:#7fd46a; --red:#f05050; --brass:#f0c83c; --violet:#a070dc; --orange:#f09040; }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.4 "Segoe UI",system-ui,sans-serif}
+  body{display:flex;flex-direction:column;height:100vh}
+  header{padding:8px 10px;border-bottom:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;gap:6px}
+  .banner{display:flex;align-items:center;gap:8px}
+  .banner .rt{flex:1;min-width:0}
+  .banner .r{font-size:11px;letter-spacing:.16em;color:var(--brass);font-weight:700}
+  .banner .t{font-size:15px;font-weight:700;letter-spacing:.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  nav{display:flex;gap:2px}
+  nav button{flex:1;border-radius:4px 4px 0 0;border-bottom:0;background:transparent;color:var(--ink2)}
+  nav button.on{background:var(--bg);color:var(--ink);border-color:var(--line)}
+  main{flex:1;overflow:auto;padding:10px}
+  button{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:4px 9px;cursor:pointer;font:inherit}
+  button:hover:not(:disabled){border-color:var(--ink3)}
+  button:disabled{opacity:.45;cursor:default}
+  button.primary{background:var(--brass);color:#1b1d2a;border-color:var(--brass);font-weight:700}
+  button.go{background:var(--cyan);color:#10131c;border-color:var(--cyan);font-weight:700}
+  button.danger{color:var(--red)}
+  button.sm{padding:1px 7px;font-size:12px}
+  button.on{background:var(--cyan);color:#10131c;border-color:var(--cyan);font-weight:600}
+  button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--brass);outline-offset:1px}
+  input,select,textarea{background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:3px 6px;font:inherit}
+  input[type=number]{width:70px}
+  input.dice{font-family:ui-monospace,Consolas,monospace;width:160px}
+  input[type=checkbox]{accent-color:var(--cyan)}
+  textarea{width:100%;font:11px/1.4 ui-monospace,Consolas,monospace}
+  .row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .col{display:flex;flex-direction:column;gap:6px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px;display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
+  .card.act{border-color:var(--brass)}
+  .card.tgt{border-color:var(--cyan)}
+  h2{margin:0;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);font-weight:600}
+  h3{margin:0;font-size:14px}
+  .muted{color:var(--ink3);font-size:12px}
+  .small{font-size:12px}
+  .mono{font-family:ui-monospace,Consolas,monospace}
+  .bar{position:relative;height:16px;background:var(--bg);border:1px solid var(--line);border-radius:3px;overflow:hidden;flex:1;min-width:90px}
+  .bar i{position:absolute;inset:0 auto 0 0;background:var(--green)}
+  .bar.pool i{background:var(--cyan)}
+  .bar.abs i{background:var(--violet)}
+  .bar span{position:relative;display:block;text-align:center;font-size:11px;line-height:14px;font-family:ui-monospace,Consolas,monospace;color:#fff;text-shadow:0 0 3px #000}
+  .pool{display:grid;grid-template-columns:minmax(90px,1.2fr) 2fr auto;gap:6px;align-items:center}
+  .pool .nm{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;border:1px solid var(--line);border-radius:10px;padding:1px 7px;color:var(--ink2)}
+  .chip b{color:var(--ink)}
+  .chip.bad{border-color:var(--red);color:var(--red)}
+  .chip.good{border-color:var(--green);color:var(--green)}
+  .chip.warn{border-color:var(--brass);color:var(--brass)}
+  .chip.vio{border-color:var(--violet);color:var(--violet)}
+  .tag{font-size:10px;letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--line);border-radius:3px;padding:0 4px;color:var(--ink3)}
+  .res{padding:6px 8px;border-radius:4px;background:var(--bg);border:1px solid var(--line);font-size:12px}
+  .res.hit{border-color:var(--green)} .res.miss{border-color:var(--red)} .res.crit{border-color:var(--brass);box-shadow:0 0 8px rgba(240,200,60,.35)}
+  .big{font-size:16px;font-weight:800;letter-spacing:.06em}
+  .big.hit{color:var(--green)} .big.miss{color:var(--red)} .big.crit{color:var(--brass)}
+  .log{font-family:ui-monospace,Consolas,monospace;font-size:11px;color:var(--ink2);white-space:pre-wrap}
+  .econ button{min-width:62px}
+  .econ button.used{background:var(--bg);color:var(--ink3);text-decoration:line-through}
+  .order li{display:grid;grid-template-columns:24px 1fr 90px auto;gap:6px;align-items:center;padding:4px 6px;border:1px solid var(--line);border-radius:5px;background:var(--panel)}
+  .order li.cur{border-color:var(--brass);box-shadow:inset 3px 0 0 var(--brass)}
+  ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+  .prompt{border:1px dashed var(--brass);border-radius:5px;padding:6px;display:flex;flex-direction:column;gap:5px}
+  .note{font-size:12px;color:var(--ink2)}
+  details summary{cursor:pointer;color:var(--ink2);font-size:12px}
+  .warnbox{border:1px solid var(--orange);color:var(--orange);border-radius:4px;padding:5px 7px;font-size:12px}
+  .msg{padding:5px 10px;font-size:12px;color:var(--brass);min-height:22px;border-top:1px solid var(--line);background:var(--panel)}
+  [hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header>
+  <div class="banner">
+    <div class="rt"><div class="r" id="bRound">NO COMBAT</div><div class="t" id="bTurn">Add combatants in Order</div></div>
+    <button class="sm" id="prevBtn" title="Back one turn" aria-label="Previous turn">◀</button>
+    <button class="primary" id="endBtn">END TURN</button>
+    <button class="sm" id="closeBtn" title="Close the combat window" aria-label="Close">✕</button>
+  </div>
+  <nav id="tabs" role="tablist"></nav>
+</header>
+<main id="main"></main>
+<div class="msg" id="msg" aria-live="polite"></div>
+<script type="module" src="combat.js?v=30"></script>
+</body>
+</html>
