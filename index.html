@@ -5,29 +5,61 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Workshop Scene Loader</title>
 <style>
-  :root{ --bg:#1f2130; --panel:#262a3b; --line:#3d4257; --ink:#e9ebf2; --ink2:#a3a8bd; --ink3:#737891; --cyan:#40d0e6; --green:#5ca014; --red:#f05050; --brass:#f0c83c; }
+  :root{ --bg:#1f2130; --panel:#262a3b; --panel2:#2d3246; --line:#3d4257; --ink:#e9ebf2; --ink2:#a3a8bd; --ink3:#8a8fa8; --cyan:#40d0e6; --green:#7fd46a; --red:#f05050; --brass:#f0c83c; --violet:#a070dc; }
   *{box-sizing:border-box}
   html,body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.45 "Segoe UI",system-ui,sans-serif}
-  main{padding:12px 14px;display:flex;flex-direction:column;gap:14px}
+  main{padding:10px 12px 16px;display:flex;flex-direction:column;gap:10px}
   h1{font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--cyan);margin:0}
-  h2{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);margin:0 0 6px}
-  textarea{width:100%;height:120px;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:6px;font:11px/1.4 ui-monospace,Consolas,monospace;resize:vertical}
-  input[type=number]{width:64px;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:3px 6px}
-  button{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:5px 10px;cursor:pointer;font:inherit}
+  details{background:var(--panel);border:1px solid var(--line);border-radius:6px}
+  summary{cursor:pointer;padding:7px 10px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);list-style:none;display:flex;justify-content:space-between;align-items:center}
+  summary::-webkit-details-marker{display:none}
+  summary::after{content:"▸";color:var(--ink3)}
+  details[open]>summary::after{content:"▾"}
+  .body{padding:0 10px 10px;display:flex;flex-direction:column;gap:7px}
+  textarea{width:100%;height:96px;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:6px;font:11px/1.4 ui-monospace,Consolas,monospace;resize:vertical}
+  input[type=number],input[type=text],select{background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:3px 6px;font:inherit}
+  input[type=number]{width:62px}
+  input[type=text]{flex:1;min-width:0}
+  button{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:4px 9px;cursor:pointer;font:inherit}
   button:hover{border-color:var(--ink3)}
   button.primary{background:var(--brass);color:#1f2130;border-color:var(--brass);font-weight:600}
   button.danger{color:var(--red)}
-  button:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px solid var(--brass);outline-offset:1px}
+  button.on{background:var(--cyan);color:#10131c;border-color:var(--cyan);font-weight:600}
+  button.small{padding:2px 7px;font-size:12px}
+  button:focus-visible,textarea:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid var(--brass);outline-offset:1px}
   .row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
   .muted{color:var(--ink3);font-size:12px}
   .msg{min-height:18px;color:var(--brass);font-size:12px}
-  ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
-  li{display:grid;grid-template-columns:1fr auto;gap:6px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:5px 8px}
-  li .name{font-weight:600}
-  li .hp{font-family:ui-monospace,Consolas,monospace;color:var(--ink2)}
-  li.dead .name{color:var(--ink3);text-decoration:line-through}
-  .ctl{display:flex;gap:4px;align-items:center}
-  .ctl button{padding:2px 7px}
+  .toolbar{display:flex;justify-content:space-between;align-items:center;gap:6px}
+  ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px}
+  li.piece{background:var(--panel2);border:1px solid var(--line);border-radius:5px}
+  li.piece.sel{border-color:var(--cyan)}
+  .head{display:grid;grid-template-columns:1fr auto;gap:6px;align-items:center;padding:5px 8px}
+  .head .open{all:unset;cursor:pointer;display:flex;flex-direction:column;min-width:0}
+  .head .open:focus-visible{outline:2px solid var(--brass);outline-offset:2px;border-radius:3px}
+  .nm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sub{font-size:12px;color:var(--ink2);font-family:ui-monospace,Consolas,monospace}
+  .dead .nm{color:var(--ink3);text-decoration:line-through}
+  .badge{display:inline-block;font-size:10px;letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--line);border-radius:3px;padding:0 4px;margin-left:4px;color:var(--ink2);font-family:"Segoe UI",system-ui,sans-serif;text-decoration:none}
+  .badge.hid{color:var(--violet);border-color:var(--violet)}
+  .badge.shown{color:var(--cyan);border-color:var(--cyan)}
+  .detail{border-top:1px solid var(--line);padding:8px;display:flex;flex-direction:column;gap:8px}
+  .lbl{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);margin-bottom:3px}
+  .chips{display:flex;flex-wrap:wrap;gap:4px}
+  .chip{font-size:12px;padding:2px 8px;border-radius:12px}
+  .chip.now{border-color:var(--brass);color:var(--brass);box-shadow:0 0 0 1px var(--brass),0 0 10px 1px rgba(240,200,60,.55);animation:glow 1.6s ease-in-out infinite}
+  .chip.shown{background:var(--cyan);color:#10131c;border-color:var(--cyan);font-weight:600}
+  .chip.now.shown{box-shadow:0 0 0 2px var(--brass),0 0 10px 2px rgba(240,200,60,.55)}
+  @keyframes glow{50%{box-shadow:0 0 0 1px var(--brass),0 0 3px 0 rgba(240,200,60,.2)}}
+  @media (prefers-reduced-motion:reduce){.chip.now{animation:none}}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:4px;overflow:hidden}
+  .seg button{border:0;border-radius:0;border-right:1px solid var(--line)}
+  .seg button:last-child{border-right:0}
+  .players{display:flex;flex-direction:column;gap:3px;padding-left:2px}
+  .players label{display:flex;gap:6px;align-items:center}
+  .thumb{width:36px;height:36px;object-fit:contain;background:var(--bg);border:1px solid var(--line);border-radius:4px}
+  .lib li{display:grid;grid-template-columns:36px 1fr auto;gap:8px;align-items:center;background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:4px 6px}
+  .note{font-size:12px;color:var(--ink2)}
   [hidden]{display:none!important}
 </style>
 </head>
@@ -35,58 +67,108 @@
 <main>
   <h1>Workshop Scene Loader</h1>
 
-  <section id="gmTools">
-    <h2>Build a scene</h2>
-    <textarea id="sceneIn" placeholder="Paste the scene text Claude gave you here"></textarea>
-    <div class="row" style="margin-top:6px">
+  <details id="buildSec" class="gm">
+    <summary>Build a scene</summary>
+    <div class="body">
+      <textarea id="sceneIn" placeholder="Paste the scene text Claude gave you here"></textarea>
       <label class="muted"><input type="checkbox" id="atCentre" checked> Build in the middle of my screen</label>
+      <div class="row" id="offRow">
+        <label class="muted" for="offX">Or start at square</label>
+        <input type="number" id="offX" value="0" aria-label="Column offset"> <input type="number" id="offY" value="0" aria-label="Row offset">
+      </div>
+      <div class="row">
+        <button class="primary" id="buildBtn">Build on map</button>
+        <button id="exampleBtn">Load example</button>
+        <button class="danger" id="clearBtn">Remove loaded pieces</button>
+      </div>
     </div>
-    <div class="row" style="margin-top:6px" id="offRow">
-      <label class="muted" for="offX">Start at square</label>
-      <input type="number" id="offX" value="0" aria-label="Column offset"> <input type="number" id="offY" value="0" aria-label="Row offset">
-    </div>
-    <div class="row" style="margin-top:6px">
-      <button class="primary" id="buildBtn">Build on map</button>
-      <button id="exampleBtn">Load example</button>
-      <button class="danger" id="clearBtn">Remove loaded pieces</button>
-    </div>
-  </section>
+  </details>
 
-  <section id="moveTools">
-    <h2>Move the whole map</h2>
-    <div class="row">
-      <button id="mvLeft" aria-label="Move left">&larr;</button>
-      <button id="mvUp" aria-label="Move up">&uarr;</button>
-      <button id="mvDown" aria-label="Move down">&darr;</button>
-      <button id="mvRight" aria-label="Move right">&rarr;</button>
-      <label class="muted" for="mvStep">by</label>
-      <input type="number" id="mvStep" value="1" min="1" aria-label="Squares per step">
-      <span class="muted">squares</span>
+  <details id="moveSec" class="gm">
+    <summary>Move the whole map</summary>
+    <div class="body">
+      <div class="row">
+        <button id="mvLeft" aria-label="Move left">&larr;</button>
+        <button id="mvUp" aria-label="Move up">&uarr;</button>
+        <button id="mvDown" aria-label="Move down">&darr;</button>
+        <button id="mvRight" aria-label="Move right">&rarr;</button>
+        <label class="muted" for="mvStep">by</label>
+        <input type="number" id="mvStep" value="1" min="1" aria-label="Squares per step">
+        <span class="muted">squares</span>
+      </div>
+      <div class="row">
+        <button id="mvCentre">Centre on my screen</button>
+        <button id="mvToSel">Top-left to selected item</button>
+      </div>
     </div>
-    <div class="row" style="margin-top:6px">
-      <button id="mvCentre">Centre on my screen</button>
-      <button id="mvToSel">Top-left to selected item</button>
-    </div>
-    <p class="muted" style="margin:6px 0 0">For "Top-left to selected item", click any piece on your map first (for example a corner of your map art), then press the button.</p>
-  </section>
+  </details>
 
-  <section>
-    <h2>Pieces on the board</h2>
-    <ul id="pieces"></ul>
-    <p class="muted" id="noPieces">Nothing loaded yet.</p>
-  </section>
-
-  <section id="exportTools">
-    <h2>Send the board to Claude</h2>
-    <div class="row">
-      <button id="exportBtn">Export board</button>
-      <button id="copyBtn" hidden>Copy</button>
+  <details id="piecesSec" open>
+    <summary>Pieces on the board</summary>
+    <div class="body">
+      <div class="toolbar gm">
+        <label class="muted"><input type="checkbox" id="showAll"> Show walls, zones and props too</label>
+      </div>
+      <ul id="pieces"></ul>
+      <p class="muted" id="noPieces" style="margin:0">Nothing loaded yet.</p>
     </div>
-    <textarea id="exportOut" readonly hidden style="margin-top:6px"></textarea>
-  </section>
+  </details>
+
+  <details id="imgSec" class="gm">
+    <summary>Linked images</summary>
+    <div class="body">
+      <p class="note" style="margin:0">A linked image replaces the drawn piece for anything with that name, now and in every scene you build later.</p>
+      <ul class="lib" id="lib"></ul>
+      <p class="muted" id="noLib" style="margin:0">No images linked yet.</p>
+      <div class="row">
+        <input type="text" id="libName" placeholder="Name, e.g. Mei" aria-label="Name to link an image to">
+      </div>
+      <div class="row">
+        <button id="libPick">Choose from my Owlbear images</button>
+        <button id="libSel">Use the selected map item</button>
+      </div>
+    </div>
+  </details>
+
+  <details id="setSec" class="gm">
+    <summary>Settings</summary>
+    <div class="body">
+      <div>
+        <div class="lbl">Exact HP for newly built pieces</div>
+        <div class="row">
+          <select id="defVis" aria-label="Default HP visibility">
+            <option value="gm">GM only</option>
+            <option value="some">GM + chosen players</option>
+            <option value="all">Everyone</option>
+          </select>
+          <button id="applyVis" class="small">Apply to every piece now</button>
+        </div>
+      </div>
+      <div>
+        <div class="lbl">Conditions (name = lowest % of max HP)</div>
+        <textarea id="condIn" aria-label="Condition list" style="height:150px"></textarea>
+        <div class="row" style="margin-top:5px">
+          <button id="condSave" class="small">Save conditions</button>
+          <button id="condReset" class="small">Reset to default</button>
+        </div>
+        <p class="muted" style="margin:4px 0 0">A condition set to 0 only applies at 0 HP or below.</p>
+      </div>
+    </div>
+  </details>
+
+  <details id="exportSec" class="gm">
+    <summary>Send the board to Claude</summary>
+    <div class="body">
+      <div class="row">
+        <button id="exportBtn">Export board</button>
+        <button id="copyBtn" hidden>Copy</button>
+      </div>
+      <textarea id="exportOut" readonly hidden></textarea>
+    </div>
+  </details>
 
   <div class="msg" id="msg" aria-live="polite"></div>
 </main>
-<script type="module" src="loader.js?v=3"></script>
+<script type="module" src="loader.js?v=20"></script>
 </body>
 </html>

@@ -1,16 +1,17 @@
 {
   "name": "Workshop Scene Loader",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "manifest_version": 1,
-  "description": "Builds maps, Bloom sections and creatures from scene text written by Claude, and exports the board back as text.",
+  "description": "Builds Claude's battle maps as pieces, with GM control over hidden pieces, who sees exact HP, revealed conditions and linked images.",
   "author": "Meta",
   "icon": "https://glitchednovels-tech.github.io/workshop-scene-loader/icon.svg",
+  "background_url": "https://glitchednovels-tech.github.io/workshop-scene-loader/background.html",
   "action": {
     "title": "Workshop Scene Loader",
     "icon": "https://glitchednovels-tech.github.io/workshop-scene-loader/icon.svg",
     "popover": "https://glitchednovels-tech.github.io/workshop-scene-loader/index.html",
-    "width": 400,
-    "height": 640
+    "width": 420,
+    "height": 720
   },
   "permissions": [
     {
