@@ -1,10 +1,10 @@
 // Workshop combat window (GM). Rounds and turns, turn order, start/end-of-turn effects, the active
 // combatant's sheet, the attack → hit → reaction → damage flow, resource pools and manual overrides.
 // Rules math lives in engine.js; sheets come from the combat pack generated from the Obsidian vault.
-import OBR, { buildShape } from "./obr-sdk.js?v=31";
-import * as E from "./engine.js?v=31";
-import { KEY, OBJ, CHILD, AOE } from "./common.js?v=31";
-import { setPiece, COMBAT_POPOVER } from "./pieces.js?v=31";
+import OBR, { buildShape } from "./obr-sdk.js?v=32";
+import * as E from "./engine.js?v=32";
+import { KEY, OBJ, CHILD, AOE } from "./common.js?v=32";
+import { setPiece, COMBAT_POPOVER } from "./pieces.js?v=32";
 
 const CMB = KEY + "/combat";                 // scene metadata: round, turn, order, areas
 const LS_PACK = "wsl.combatPack.v1", LS_RULES = "wsl.combatRules.v1";
@@ -267,8 +267,13 @@ async function processTurnPhase(slot, when) {
     // areas: "when starting your turn in X radius"
     if (when === "start") for (const a of combat.areas || []) {
       if ((a.trigger || "start") !== "start") continue;
-      const inside = a.templateId ? await inTemplate(a.templateId, id) : ((await distanceFeet(a.anchorId, id)) ?? Infinity) <= a.radius;
-      if (inside) prompts.push({ key: uid(), id, name: `${a.name}: starts turn inside the area`, area: a, when, kind: "area" });
+      let inside;
+      if (a.templateId) {
+        const [t] = await OBR.scene.items.getItems([a.templateId]);
+        if (!t) { log.push(`⚠ ${a.name}: its template is missing from the map, so it can't check who is inside`); continue; }
+        try { inside = templateHits(t, await OBR.scene.items.getItemBounds([id])); } catch (e) { inside = false; }
+      } else inside = ((await distanceFeet(a.anchorId, id)) ?? Infinity) <= a.radius;
+      if (inside && view(id).hp > 0) prompts.push({ key: uid(), id, name: `${a.name}: starts turn inside the area`, area: a, when, kind: "area" });
     }
   }
   for (const l of log) logLine(l);
@@ -353,6 +358,54 @@ export function templateHits(t, b) {
   const pad = Math.min(b.max.x - b.min.x, b.max.y - b.min.y) / 2;
   return lx >= -pad && lx <= t.width * sx + pad && ly >= -pad && ly <= t.height * sy + pad;
 }
+async function registerArea(a, tplId) {
+  const ar = a.area, d = areaDims(ar);
+  if ((combat.areas || []).some((x) => x.templateId === tplId)) return;
+  combat.areas = [...(combat.areas || []), { id: uid(), name: ar.name || a.name, templateId: tplId, anchorId: tplId, shape: d.shape, radius: d.radius, rounds: ar.rounds, trigger: ar.trigger || "start",
+    damage: ar.damage || a.damage, save: ar.save || a.save, ownerId: draft ? draft.attackerId : null, placedRound: combat.round }];
+  await saveCombat();
+  logLine(`${ar.name || a.name} is active (${areaText(ar)}, ${ar.rounds} rounds)`);
+  say(`${ar.name || a.name} is active for ${ar.rounds} rounds. Drag the template to where it landed.`);
+}
+// Every combatant whose token touches the area's template right now.
+async function whoIsInside(area) {
+  const [t] = area.templateId ? await OBR.scene.items.getItems([area.templateId]) : [];
+  if (!t) return null;                       // template was deleted
+  const out = [];
+  for (const id of combatantIds()) { try { if (templateHits(t, await OBR.scene.items.getItemBounds([id]))) out.push(id); } catch (e) {} }
+  return out;
+}
+// Ask for rolls now for everyone inside (for example the moment a grenade lands).
+async function promptAreaNow(area) {
+  const ids = await whoIsInside(area);
+  if (ids === null) { say(`${area.name}: its template is gone from the map. Remove the area or place it again.`, "WARNING"); return; }
+  if (!ids.length) { say(`Nobody is inside ${area.name} right now.`); return; }
+  for (const id of ids) if (view(id).hp > 0 && !prompts.some((p) => p.kind === "area" && p.area.id === area.id && p.id === id)) prompts.push({ key: uid(), id, name: `${area.name}: inside the area now`, area, when: "now", kind: "area" });
+  tab = "turn"; render();
+}
+function areaRow(area, compact) {
+  const inside = h("span", { class: "small muted" }, "checking who is inside…");
+  whoIsInside(area).then((ids) => {
+    if (ids === null) { inside.textContent = "⚠ template missing from the map"; inside.style.color = "var(--orange)"; return; }
+    inside.textContent = ids.length ? "Inside now: " + ids.map((id) => nameOf(id) + (view(id).hp > 0 ? "" : " (down)")).join(", ") : "Nobody inside right now";
+    inside.style.color = ids.length ? "var(--ink)" : "";
+  }).catch(() => (inside.textContent = ""));
+  return h("div", { class: "col", style: compact ? "" : "border-top:1px solid var(--line);padding-top:5px" },
+    h("div", { class: "row small" }, h("b", {}, area.name), h("span", { class: "chip warn" }, `${area.rounds} round${area.rounds === 1 ? "" : "s"} left`),
+      area.save ? h("span", { class: "muted" }, `${area.save.attr} DC ${area.save.dc}${area.save.half ? " half" : ""} · ${(area.damage || []).map((x) => x.dice + " " + x.type).join(" + ")}`) : null),
+    inside,
+    h("div", { class: "row" },
+      h("button", { class: "go sm", onclick: () => promptAreaNow(area) }, "Roll for everyone inside now"),
+      h("button", { class: "sm", onclick: async () => { if (area.templateId) await OBR.player.select([area.templateId], true).catch(() => {}); } }, "Select template"),
+      h("button", { class: "sm", title: "One more round", onclick: async () => { const x = combat.areas.find((q) => q.id === area.id); if (x) x.rounds += 1; await saveCombat(); render(); } }, "+1 round"),
+      h("button", { class: "sm danger", onclick: async () => { combat.areas = combat.areas.filter((x) => x.id !== area.id); prompts = prompts.filter((p) => !(p.area && p.area.id === area.id)); await saveCombat(); await removeTemplate(area.templateId); render(); } }, "Remove")));
+}
+function activeAreasCard() {
+  const list = combat.areas || [];
+  if (!list.length) return null;
+  return h("div", { class: "card", style: "border-color:var(--orange)" }, h("h2", {}, `Active areas (${list.length})`), ...list.map((a) => areaRow(a)));
+}
+
 async function removeTemplate(tplId) { if (tplId) await OBR.scene.items.deleteItems([tplId]).catch(() => {}); }
 
 async function distanceFeet(anchorId, id) {
@@ -447,13 +500,14 @@ function turnTab() {
   if (!view_.id || !items.has(view_.id)) view_.id = slot ? slot.ids[0] : ([...items.keys()].find((id) => cbtOf(id)) || null);
   if (slot && slot.ids.length > 1) out.push(h("div", { class: "row" }, h("span", { class: "muted" }, "Acting together:"), ...slot.ids.map((id) => h("button", { class: "sm" + (id === view_.id ? " on" : ""), onclick: () => { view_.id = id; render(); } }, nameOf(id)))));
   if (prompts.length) out.push(promptsCard());
+  const ac = activeAreasCard(); if (ac) out.push(ac);
   if (!view_.id) { out.push(h("p", { class: "muted" }, "No combatant yet. Use the Order tab to add pieces from the map.")); return out; }
   out.push(...sheetView(view_.id, { full: true }));
   return out;
 }
 
 function promptsCard() {
-  return h("div", { class: "card act" }, h("h2", {}, endPending ? "End of turn effects" : "Start of turn effects"),
+  return h("div", { class: "card act" }, h("h2", {}, endPending ? "End of turn effects" : "Rolls and effects to resolve"),
     ...prompts.map((p) => {
       const box = h("div", { class: "prompt" }, h("b", {}, `${nameOf(p.id)} — ${p.name}`), p.text ? h("span", { class: "note" }, p.text) : null);
       if (p.kind === "area") {
@@ -676,7 +730,8 @@ async function useAction(id, a) {
 
 /* ======================= Attack tab ======================= */
 function startAttack(attackerId, actionId) {
-  draft = { key: uid(), attackerId, actionId: actionId || "custom", custom: { name: "Custom attack", bonus: 0, dice: "1d8", type: "bludgeoning", penFlat: 0, penPct: 0 },
+  if (!actionId) { const first = ((sheetOf(attackerId) || {}).actions || []).find((x) => x.attack || x.save || x.area); actionId = first ? first.id : "custom"; }
+  draft = { key: uid(), attackerId, actionId, custom: { name: "Custom attack", bonus: 0, dice: "1d8", type: "bludgeoning", penFlat: 0, penPct: 0 },
     adv: "normal", cover: 0, accExtra: 0, ignoreShield: false, payCosts: true, paidOnce: false, targets: [], consecutive: {}, shared: null, sharedExprs: null, areaPlaced: false };
   tab = "attack"; render();
   const a = actionOf(draft);
@@ -885,7 +940,7 @@ function attackTab() {
   const pick = h("select", { "aria-label": "Add a target" }, h("option", { value: "" }, "Add a target…"), ...ids.filter((id) => id !== d.attackerId).map((id) => h("option", { value: id }, nameOf(id))));
   pick.onchange = () => { if (pick.value) { addTarget(pick.value); render(); } };
   tc.append(h("div", { class: "row" }, h("button", { class: "sm", onclick: () => addSelectedTargets(false) }, "Add selected tokens"), pick,
-    h("button", { class: "sm", onclick: async () => { if (draft.tplId && !draft.areaPlaced) await removeTemplate(draft.tplId); draft = null; render(); } }, "Done / clear")));
+    h("button", { class: "sm", onclick: async () => { if (draft.tplId && !(combat.areas || []).some((x) => x.templateId === draft.tplId)) await removeTemplate(draft.tplId); draft = null; render(); } }, "Done / clear")));
   out.push(tc);
   for (const te of d.targets) out.push(targetCard(te, a));
   out.push(logCard());
@@ -907,6 +962,7 @@ function areaControls(a) {
         const sel = ((await OBR.player.getSelection()) || []).filter((x) => x !== draft.attackerId);
         draft.tplId = await placeTemplate(ar, draft.attackerId, d.shape === "line" ? sel[0] : null, a.name);
         logLine(`${nameOf(draft.attackerId)}: ${a.name} template placed (${areaText(ar)})`);
+        if (persistent) await registerArea(a, draft.tplId);
         render();
       } catch (e) { say("Couldn't place the template: " + e.message, "ERROR"); }
     } }, "Place template")));
@@ -917,13 +973,11 @@ function areaControls(a) {
   if (d.shape !== "circle") row.append(
     h("button", { class: "sm", onclick: async () => { const sel = ((await OBR.player.getSelection()) || []).filter((x) => x !== draft.tplId && x !== draft.attackerId); if (!sel.length) { say("Select the token to aim at first."); return; } await aimTemplate(draft.tplId, draft.attackerId, sel[0]); say("Aimed."); } }, "Aim at selected token"),
     rot, h("button", { class: "sm", onclick: async () => { if (rot.value !== "") { await rotateTemplate(draft.tplId, +rot.value); } } }, "Rotate to °"));
-  box.append(h("div", { class: "note" }, "Drag or rotate the orange template on the map, then:"), row);
+  box.append(h("div", { class: "note" }, persistent ? "Active. Drag it to where it landed: whoever is inside when their turn starts gets a roll prompt." : "Drag or rotate the orange template on the map, then:"), row);
   const act = h("div", { class: "row" });
   if (persistent) {
-    act.append(h("button", { class: "primary sm", disabled: draft.areaPlaced, onclick: async () => {
-      combat.areas = [...(combat.areas || []), { id: uid(), name: ar.name || a.name, templateId: draft.tplId, anchorId: draft.tplId, radius: d.radius, rounds: ar.rounds, trigger: ar.trigger || "start", damage: ar.damage || a.damage, save: ar.save || a.save, ownerId: draft.attackerId }];
-      await saveCombat(); draft.areaPlaced = true; logLine(`${ar.name || a.name} is active (${areaText(ar)}, ${ar.rounds} rounds)`); say("Area confirmed. Anything starting its turn inside gets a prompt."); render();
-    } }, draft.areaPlaced ? "Area active" : `Confirm area (${ar.rounds} rounds)`));
+    const area = (combat.areas || []).find((x) => x.templateId === draft.tplId);
+    if (area) box.append(areaRow(area, true));
   } else {
     const allies = h("input", { type: "checkbox", checked: true });
     act.append(h("button", { class: "go sm", onclick: async () => {
@@ -1108,10 +1162,7 @@ function orderTab() {
     h("button", { class: "primary", onclick: commitPending }, `Add ${pending.length}`)));
   out.push(ac);
   // areas
-  const arc = h("div", { class: "card" }, h("h2", {}, "Areas on the map"));
-  if (!(combat.areas || []).length) arc.append(h("span", { class: "muted" }, "None. Throwing a grenade (Attack tab) places one."));
-  for (const a of combat.areas || []) arc.append(h("div", { class: "row small" }, h("b", {}, a.name), `${a.rounds} rounds left`,
-    h("button", { class: "sm", onclick: async () => { a.rounds += 1; await saveCombat(); render(); } }, "+1"), h("button", { class: "sm danger", onclick: async () => { combat.areas = combat.areas.filter((x) => x !== a); await saveCombat(); await removeTemplate(a.templateId); render(); } }, "Remove")));
+  const arc = activeAreasCard() || h("div", { class: "card" }, h("h2", {}, "Active areas"), h("span", { class: "muted" }, "None. Throwing a grenade places one."));
   out.push(arc);
   return out;
 }

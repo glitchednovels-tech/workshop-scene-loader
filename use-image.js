@@ -1,8 +1,8 @@
 // "What should use this image?" — opened from the right-click menu of an image on the map (GM only).
 // Lists every loaded piece; the ticked ones are rebuilt to use the image, keeping their layer, size, lock and visibility.
-import OBR from "./obr-sdk.js?v=31";
-import { OBJ } from "./common.js?v=31";
-import { loadRoom, applyImage, rebuildPiece, imageOf } from "./pieces.js?v=31";
+import OBR from "./obr-sdk.js?v=32";
+import { OBJ } from "./common.js?v=32";
+import { loadRoom, applyImage, rebuildPiece, imageOf } from "./pieces.js?v=32";
 
 const $ = (id) => document.getElementById(id);
 const TYPE_NAME = { token: "Character", bloom: "Bloom", rect: "Wall", zone: "Zone", mat: "Floor", grenade: "Grenade", shield: "Shield", prop: "Prop", item: "Item" };
