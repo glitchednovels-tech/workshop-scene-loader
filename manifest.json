@@ -1,14 +1,14 @@
 {
   "name": "Workshop Scene Loader",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "manifest_version": 1,
   "description": "Builds maps, Bloom sections and creatures from scene text written by Claude, and exports the board back as text.",
   "author": "Meta",
-  "icon": "https://metagrossowlbear.github.io/workshop-scene-loader/icon.svg?v=2",
+  "icon": "https://glitchednovels-tech.github.io/workshop-scene-loader/icon.svg",
   "action": {
     "title": "Workshop Scene Loader",
-    "icon": "https://metagrossowlbear.github.io/workshop-scene-loader/icon.svg?v=2",
-    "popover": "https://metagrossowlbear.github.io/workshop-scene-loader/index.html?v=2",
+    "icon": "https://glitchednovels-tech.github.io/workshop-scene-loader/icon.svg",
+    "popover": "https://glitchednovels-tech.github.io/workshop-scene-loader/index.html",
     "width": 400,
     "height": 640
   },
@@ -18,5 +18,5 @@
       "reason": "Copy the exported board so you can paste it to Claude"
     }
   ],
-  "homepage_url": "https://metagrossowlbear.github.io/workshop-scene-loader/"
+  "homepage_url": "https://glitchednovels-tech.github.io/workshop-scene-loader/"
 }
