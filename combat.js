@@ -1,10 +1,10 @@
 // Workshop combat window (GM). Rounds and turns, turn order, start/end-of-turn effects, the active
 // combatant's sheet, the attack → hit → reaction → damage flow, resource pools and manual overrides.
 // Rules math lives in engine.js; sheets come from the combat pack generated from the Obsidian vault.
-import OBR, { buildShape } from "./obr-sdk.js?v=32";
-import * as E from "./engine.js?v=32";
-import { KEY, OBJ, CHILD, AOE } from "./common.js?v=32";
-import { setPiece, COMBAT_POPOVER } from "./pieces.js?v=32";
+import OBR, { buildShape } from "./obr-sdk.js?v=33";
+import * as E from "./engine.js?v=33";
+import { KEY, OBJ, CHILD, AOE } from "./common.js?v=33";
+import { setPiece, COMBAT_POPOVER } from "./pieces.js?v=33";
 
 const CMB = KEY + "/combat";                 // scene metadata: round, turn, order, areas
 const LS_PACK = "wsl.combatPack.v1", LS_RULES = "wsl.combatRules.v1";
@@ -358,6 +358,41 @@ export function templateHits(t, b) {
   const pad = Math.min(b.max.x - b.min.x, b.max.y - b.min.y) / 2;
   return lx >= -pad && lx <= t.width * sx + pad && ly >= -pad && ly <= t.height * sy + pad;
 }
+// Instant area attacks (beams, squares, bursts): whatever touches the template is a target, live.
+// Runs whenever anything on the map changes. Targets added this way are marked "auto" and drop off again
+// when they leave the template, unless their damage has already been applied. Targets you add by hand stay.
+let syncBusy = false, syncAgain = false;
+async function syncDraftTargets() {
+  const d = draft;
+  if (!d || !d.tplId) return false;
+  const a = actionOf(d);
+  if (!a || !a.area || a.area.rounds) return false;
+  if (syncBusy) { syncAgain = true; return false; }
+  syncBusy = true;
+  let changed = false;
+  try {
+    const [t] = await OBR.scene.items.getItems([d.tplId]);
+    if (draft !== d) return false;
+    const inside = new Set();
+    if (t) for (const id of combatantIds()) {
+      if (id === d.attackerId) continue;
+      if (d.noAllies && !!sheetOf(id)?.pc === !!sheetOf(d.attackerId)?.pc) continue;
+      try { if (templateHits(t, await OBR.scene.items.getItemBounds([id]))) inside.add(id); } catch (e) {}
+    }
+    if (draft !== d) return false;
+    const before = d.targets.length;
+    d.targets = d.targets.filter((te) => !(te.auto && !te.applied && !inside.has(te.id)));
+    if (d.targets.length !== before) changed = true;
+    for (const id of inside) if (!d.targets.some((te) => te.id === id)) { const te = addTarget(id); te.auto = true; te.preview = d.shared ? previewFor(te) : null; changed = true; }
+    d.insideCount = inside.size;
+    d.templateMissing = !t;
+  } finally {
+    syncBusy = false;
+    if (syncAgain) { syncAgain = false; setTimeout(() => syncDraftTargets().then((c) => c && scheduleRender()), 0); }
+  }
+  return changed;
+}
+
 async function registerArea(a, tplId) {
   const ar = a.area, d = areaDims(ar);
   if ((combat.areas || []).some((x) => x.templateId === tplId)) return;
@@ -963,6 +998,7 @@ function areaControls(a) {
         draft.tplId = await placeTemplate(ar, draft.attackerId, d.shape === "line" ? sel[0] : null, a.name);
         logLine(`${nameOf(draft.attackerId)}: ${a.name} template placed (${areaText(ar)})`);
         if (persistent) await registerArea(a, draft.tplId);
+        else await syncDraftTargets();
         render();
       } catch (e) { say("Couldn't place the template: " + e.message, "ERROR"); }
     } }, "Place template")));
@@ -973,25 +1009,19 @@ function areaControls(a) {
   if (d.shape !== "circle") row.append(
     h("button", { class: "sm", onclick: async () => { const sel = ((await OBR.player.getSelection()) || []).filter((x) => x !== draft.tplId && x !== draft.attackerId); if (!sel.length) { say("Select the token to aim at first."); return; } await aimTemplate(draft.tplId, draft.attackerId, sel[0]); say("Aimed."); } }, "Aim at selected token"),
     rot, h("button", { class: "sm", onclick: async () => { if (rot.value !== "") { await rotateTemplate(draft.tplId, +rot.value); } } }, "Rotate to °"));
-  box.append(h("div", { class: "note" }, persistent ? "Active. Drag it to where it landed: whoever is inside when their turn starts gets a roll prompt." : "Drag or rotate the orange template on the map, then:"), row);
+  box.append(h("div", { class: "note" }, persistent ? "Active. Drag it to where it landed: whoever is inside when their turn starts gets a roll prompt." : "Drag or rotate the orange template on the map: everything inside it becomes a target, and anything you move out of it is dropped."), row);
   const act = h("div", { class: "row" });
   if (persistent) {
     const area = (combat.areas || []).find((x) => x.templateId === draft.tplId);
     if (area) box.append(areaRow(area, true));
   } else {
-    const allies = h("input", { type: "checkbox", checked: true });
-    act.append(h("button", { class: "go sm", onclick: async () => {
-      let n = 0;
-      for (const id of combatantIds()) {
-        if (id === draft.attackerId || draft.targets.some((t) => t.id === id)) continue;
-        if (draft.noAllies && !!sheetOf(id)?.pc === !!sheetOf(draft.attackerId)?.pc) continue;
-        if (await inTemplate(draft.tplId, id)) { addTarget(id); n++; }
-      }
-      say(n ? `${n} target${n === 1 ? "" : "s"} in the area.` : "Nobody new is inside the template."); render();
-    } }, "Find targets in template"), h("label", { class: "small" }, allies, " friendly fire (allies count too)"));
-    allies.onchange = () => { draft.noAllies = !allies.checked; };
+    const allies = h("input", { type: "checkbox", checked: !draft.noAllies });
+    const n = draft.insideCount ?? draft.targets.filter((t) => t.auto).length;
+    act.append(h("span", { class: "chip " + (n ? "good" : "") }, draft.templateMissing ? "⚠ template missing" : `Auto-targeting: ${n} inside`),
+      h("label", { class: "small" }, allies, " friendly fire (allies count too)"));
+    allies.onchange = async () => { draft.noAllies = !allies.checked; await syncDraftTargets(); render(); };
   }
-  act.append(h("button", { class: "sm danger", onclick: async () => { const tid = draft.tplId; draft.tplId = null; draft.areaPlaced = false; combat.areas = (combat.areas || []).filter((x) => x.templateId !== tid); await saveCombat(); await removeTemplate(tid); render(); } }, "Remove template"));
+  act.append(h("button", { class: "sm danger", onclick: async () => { const tid = draft.tplId; draft.tplId = null; draft.areaPlaced = false; draft.targets = draft.targets.filter((te) => !(te.auto && !te.applied)); draft.insideCount = 0; combat.areas = (combat.areas || []).filter((x) => x.templateId !== tid); await saveCombat(); await removeTemplate(tid); render(); } }, "Remove template"));
   box.append(act);
   return box;
 }
@@ -999,7 +1029,7 @@ function areaControls(a) {
 function targetCard(te, a) {
   const v = view(te.id);
   const card = h("div", { class: "card tgt" });
-  card.append(h("div", { class: "row", style: "justify-content:space-between" }, h("h3", {}, nameOf(te.id), te.chain ? h("span", { class: "tag" }, ` chain ${te.chain + 1}`) : null),
+  card.append(h("div", { class: "row", style: "justify-content:space-between" }, h("h3", {}, nameOf(te.id), te.chain ? h("span", { class: "tag" }, ` chain ${te.chain + 1}`) : null, te.auto ? h("span", { class: "tag", style: "color:var(--orange);border-color:var(--orange);margin-left:6px" }, "in area") : null),
     h("span", { class: "row" }, h("span", { class: "chip" }, "HP ", h("b", {}, `${v.hp}/${v.maxHp}`)),
       h("button", { class: "sm", onclick: () => { view_.id = te.id; tab = "turn"; render(); } }, "Open sheet"),
       h("button", { class: "sm", "aria-label": "Remove target", onclick: () => { draft.targets = draft.targets.filter((x) => x !== te); render(); } }, "✕"))));
@@ -1287,7 +1317,7 @@ function libraryTab() {
 OBR.onReady(async () => {
   if ((await OBR.player.getRole()) !== "GM") { $("main").textContent = "The combat window is for the GM."; return; }
   loadPack();
-  const refresh = async () => { try { await readScene(); } catch (e) {} scheduleRender(); };
+  const refresh = async () => { try { await readScene(); } catch (e) {} try { await syncDraftTargets(); } catch (e) {} scheduleRender(); };
   if (await OBR.scene.isReady()) await readScene();
   OBR.scene.onReadyChange(refresh);
   OBR.scene.items.onChange(refresh);
