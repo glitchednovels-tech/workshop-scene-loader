@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What should use this image?</title>
+<style>
+  :root{ --bg:#1f2130; --panel:#262a3b; --panel2:#2d3246; --line:#3d4257; --ink:#e9ebf2; --ink2:#a3a8bd; --ink3:#8a8fa8; --cyan:#40d0e6; --brass:#f0c83c; --violet:#a070dc; }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:transparent;color:var(--ink);font:13px/1.4 "Segoe UI",system-ui,sans-serif;height:100%}
+  main{height:100%;display:flex;flex-direction:column;gap:7px;padding:8px 10px 10px}
+  .top{display:flex;gap:9px;align-items:center}
+  .top img{width:40px;height:40px;object-fit:contain;background:var(--bg);border:1px solid var(--line);border-radius:4px;flex:none}
+  .top b{display:block;font-size:13px}
+  .top span{color:var(--ink3);font-size:12px}
+  input[type=search]{width:100%;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:4px 7px;font:inherit}
+  .types{display:flex;gap:4px;flex-wrap:wrap}
+  button{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:3px 8px;cursor:pointer;font:inherit;font-size:12px}
+  button:hover{border-color:var(--ink3)}
+  button.on{background:var(--cyan);color:#10131c;border-color:var(--cyan);font-weight:600}
+  button.primary{background:var(--brass);color:#1f2130;border-color:var(--brass);font-weight:600;padding:5px 12px}
+  button:disabled{opacity:.5;cursor:default}
+  button:focus-visible,input:focus-visible{outline:2px solid var(--brass);outline-offset:1px}
+  ul{list-style:none;margin:0;padding:0;overflow:auto;flex:1;min-height:60px;border:1px solid var(--line);border-radius:5px;background:var(--bg)}
+  li label{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;padding:4px 8px;border-bottom:1px solid var(--panel2);cursor:pointer}
+  li label:hover{background:var(--panel)}
+  .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tag{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);border:1px solid var(--line);border-radius:3px;padding:0 4px;margin-left:3px}
+  .tag.hid{color:var(--violet);border-color:var(--violet)}
+  .tag.using{color:var(--cyan);border-color:var(--cyan)}
+  .opts{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--ink2)}
+  .foot{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .msg{font-size:12px;color:var(--brass);min-height:16px}
+  .empty{padding:10px;color:var(--ink3)}
+</style>
+</head>
+<body>
+<main>
+  <div class="top"><img id="thumb" alt=""><div><b>What should use this image?</b><span id="sub">Tick the pieces, then press Apply.</span></div></div>
+  <input type="search" id="q" placeholder="Search by name" aria-label="Search pieces by name">
+  <div class="types" id="types" role="group" aria-label="Show pieces of type"></div>
+  <ul id="list" aria-label="Pieces on the map"></ul>
+  <div class="opts">
+    <label><input type="checkbox" id="remember" checked> Also use it in future scenes (by piece name)</label>
+    <label><input type="checkbox" id="removeSrc"> Remove this image from the map afterwards</label>
+  </div>
+  <div class="foot">
+    <span class="msg" id="msg" aria-live="polite"></span>
+    <button class="primary" id="apply" disabled>Apply</button>
+  </div>
+</main>
+<script type="module" src="use-image.js?v=22"></script>
+</body>
+</html>

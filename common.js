@@ -69,7 +69,8 @@ export function pieceBox(it, dpi) {
   const m = (it.metadata && it.metadata[OBJ]) || {};
   const sx = Math.abs(it.scale?.x || 1), sy = Math.abs(it.scale?.y || 1);
   if (it.type === "IMAGE") {
-    const w = (m.w || 1) * dpi * sx, h = (m.h || 1) * dpi * sy;
+    const bs = m.ibs || { x: 1, y: 1 };   // the scale it was built with; any extra is the GM resizing it
+    const w = (m.w || 1) * dpi * sx / Math.abs(bs.x || 1), h = (m.h || 1) * dpi * sy / Math.abs(bs.y || 1);
     return { x: it.position.x - w / 2, y: it.position.y - h / 2, w, h, centred: true };
   }
   if (it.type === "SHAPE") {

@@ -1,16 +1,16 @@
 // Workshop Scene Loader — an Owlbear Rodeo extension (panel).
 // Turns "War Table" scene text (positions in grid squares) into Owlbear items, and back,
 // and gives the GM control over what players can see: exact HP, revealed condition, hidden pieces.
-import OBR, { buildShape, buildText, buildImage } from "./obr-sdk.js?v=21";
+import OBR from "./obr-sdk.js?v=22";
+import { OBJ, CHILD, SCENE, HP_VIS, DEFAULT_CONDITIONS, normKey, sortConditions, detectCondition, hpVisibleTo } from "./common.js?v=22";
 import {
-  OBJ, CHILD, ROLE, SCENE, ROOM, HP_VIS, DEFAULT_CONDITIONS, LABEL_GAP, LABEL_SIZE,
-  normKey, sortConditions, detectCondition, hpVisibleTo, sharedLabel, pieceBox,
-} from "./common.js?v=21";
-
-const COLORS = { bloom: "#5ca014", cyan: "#40d0e6", ember: "#f05050", brass: "#f0c83c", steel: "#8c90a0", white: "#f5f5f5", blue: "#5a96e6", violet: "#a070dc" };
-const col = (c) => COLORS[c] || c || "#f5f5f5";
+  room, loadRoom, saveRoom, conditions, CREATURE, pieceKey, buildPiece, canBeDead, itemToObj,
+  setPiece, syncDecor, setHidden, rebuildPiece as rebuildRaw, pickFromSelection, linkImage, applyImage,
+} from "./pieces.js?v=22";
 const $ = (id) => document.getElementById(id);
-const uid = () => (crypto.randomUUID ? crypto.randomUUID() : "i" + Math.random().toString(36).slice(2));
+// Rebuilding gives a piece a new id; keep its card open.
+async function rebuildPiece(id, patch) { const nid = await rebuildRaw(id, patch); if (nid && openIds.has(id)) { openIds.delete(id); openIds.add(nid); } return nid; }
+
 // Messages show as an Owlbear pop-up (always visible) and at the bottom of the panel.
 function say(t, variant) {
   if (!t) return;
@@ -18,122 +18,8 @@ function say(t, variant) {
   try { OBR.notification.show(t, variant || "DEFAULT"); } catch (e) {}
 }
 const why = (e) => (e && (e.message || e.error?.message || (typeof e === "string" ? e : ""))) || "unknown error";
-function seeded(str) { let h = 2166136261; for (const ch of String(str)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return () => { h ^= h << 13; h ^= h >>> 17; h ^= h << 5; return ((h >>> 0) % 10000) / 10000; }; }
-const round = (v) => Math.round(v * 100) / 100;
 const el = (tag, props = {}, ...kids) => { const e = document.createElement(tag); for (const [k, v] of Object.entries(props)) { if (k === "class") e.className = v; else if (k.startsWith("on")) e[k] = v; else if (v !== undefined && v !== null && v !== false) e.setAttribute(k, v === true ? "" : v); } e.append(...kids.filter((k) => k !== null && k !== undefined && k !== false)); return e; };
 
-const META_FIELDS = ["id", "type", "label", "color", "hp", "maxHp", "dead", "notes", "w", "h", "hpVis", "hpPlayers", "shown", "img", "noImg"];
-const NO_LABEL_IMAGE = ["text", "zone", "rect", "mat"];      // these never pick up an image just from their name
-const CREATURE = (m) => m.maxHp || ["token", "bloom"].includes(m.type) || m.img;
-
-/* ---------- Room settings (conditions, default HP visibility, image library) ---------- */
-let room = { conditions: null, defaultHpVis: "gm", images: {} };
-async function loadRoom() { const r = (await OBR.room.getMetadata())[ROOM] || {}; room = { conditions: r.conditions || null, defaultHpVis: r.defaultHpVis || "gm", images: r.images || {} }; }
-async function saveRoom(patch) { room = { ...room, ...patch }; await OBR.room.setMetadata({ [ROOM]: room }); }
-const conditions = () => sortConditions(room.conditions);
-
-/* ---------- Scene -> items ---------- */
-function libImage(o) {
-  if (o.noImg) return null;
-  const k = normKey(o.image || o.img || (NO_LABEL_IMAGE.includes(o.type) ? "" : o.label));
-  return k && room.images[k] ? { key: k, ...room.images[k] } : null;
-}
-
-function buildPiece(o, dpi, ox, oy) {
-  const items = [];
-  const x = (o.x + ox) * dpi, y = (o.y + oy) * dpi;
-  const w = (o.w || 1) * dpi, h = (o.h || 1) * dpi;
-  const c = col(o.color);
-  const im = o.type === "text" ? null : libImage(o);
-  const m = {};
-  for (const f of META_FIELDS) if (o[f] !== undefined) m[f] = o[f];
-  Object.assign(m, { label: o.label || "", color: o.color || "", hp: o.hp ?? null, maxHp: o.maxHp ?? null, dead: !!o.dead, notes: o.notes || "", w: o.w || 1, h: o.h || 1,
-    hpVis: o.hpVis || room.defaultHpVis || "gm", hpPlayers: o.hpPlayers || [], shown: o.shown || "", img: im ? im.key : null, noImg: !!o.noImg });
-  const lw = Math.max(2, dpi * 0.05);
-  const mainId = uid();
-  const locked = o.locked ?? ["rect", "zone", "mat"].includes(o.type);
-  const child = (b) => b.attachedTo(mainId).locked(true).disableHit(true).metadata({ [CHILD]: mainId });
-
-  let main;
-  if (im) {
-    const fit = Math.max(im.width, im.height) / Math.max(o.w || 1, o.h || 1);
-    main = buildImage({ url: im.url, mime: im.mime || "image/png", width: im.width, height: im.height }, { dpi: fit, offset: { x: im.width / 2, y: im.height / 2 } })
-      .position({ x: x + w / 2, y: y + h / 2 }).layer(["token", "bloom"].includes(o.type) ? "CHARACTER" : "PROP");
-  } else switch (o.type) {
-    case "token":
-      main = buildShape().id(mainId).shapeType("CIRCLE").width(w).height(h).position({ x: x + w / 2, y: y + h / 2 })
-        .fillColor("#321c26").fillOpacity(1).strokeColor(c).strokeWidth(lw * 1.4).layer("CHARACTER");
-      break;
-    case "grenade":
-      main = buildShape().id(mainId).shapeType("CIRCLE").width(w).height(h).position({ x: x + w / 2, y: y + h / 2 })
-        .fillColor(o.dead ? "#1f2130" : c).fillOpacity(o.dead ? 0 : 0.8).strokeColor(o.dead ? "#8c90a0" : c).strokeWidth(lw).layer("PROP");
-      break;
-    case "zone":
-      main = buildShape().id(mainId).shapeType("RECTANGLE").width(w).height(h).position({ x, y })
-        .fillColor(c).fillOpacity(0).strokeColor(c).strokeWidth(lw).strokeDash([dpi * 0.2, dpi * 0.12]).layer("DRAWING");
-      break;
-    case "mat":
-      main = buildShape().id(mainId).shapeType("RECTANGLE").width(w).height(h).position({ x, y })
-        .fillColor(o.dead ? "#6e3737" : "#3c6e14").fillOpacity(0.25).strokeColor(o.dead ? "#6e3737" : "#3c6e14").strokeWidth(lw * 0.6).strokeDash([dpi * 0.08, dpi * 0.08]).layer("DRAWING");
-      break;
-    case "text":
-      main = buildText().id(mainId).plainText(o.label || "Label").textType("PLAIN").width("AUTO").height("AUTO")
-        .fontSize(dpi * 0.3).fontWeight(600).fillColor(c).position({ x, y }).layer("TEXT");
-      break;
-    case "shield": {
-      main = buildShape().id(mainId).shapeType("RECTANGLE").width(w).height(h).position({ x, y })
-        .fillColor("#1f2130").fillOpacity(1).strokeColor(c).strokeWidth(lw).layer("PROP");
-      const vertical = h >= w, cap = Math.min(w, h);
-      const capA = vertical ? { x: x, y: y - dpi * 0.2 } : { x: x - dpi * 0.2, y: y };
-      const capB = vertical ? { x: x, y: y + h + dpi * 0.02 } : { x: x + w + dpi * 0.02, y: y };
-      for (const p of [capA, capB]) {
-        items.push(child(buildShape().shapeType("RECTANGLE").width(vertical ? cap : dpi * 0.18).height(vertical ? dpi * 0.18 : cap).position(p)
-          .fillColor("#f05050").fillOpacity(0).strokeColor("#f05050").strokeWidth(lw * 0.7).layer("PROP")).build());
-      }
-      break;
-    }
-    case "bloom": {
-      main = buildShape().id(mainId).shapeType("RECTANGLE").width(w).height(h).position({ x, y })
-        .fillColor(c).fillOpacity(0.08).strokeColor(c).strokeWidth(lw).layer("CHARACTER");
-      const r = seeded(o.id);
-      for (let i = 0; i < 4; i++) {
-        const sw = (0.45 + r() * 0.45) * w, sh = (0.4 + r() * 0.45) * h;
-        const px = x + r() * (w - sw) + (r() - 0.5) * dpi * 0.3, py = y + r() * (h - sh) + (r() - 0.5) * dpi * 0.3;
-        items.push(child(buildShape().shapeType("RECTANGLE").width(sw).height(sh).position({ x: px, y: py })
-          .fillColor(c).fillOpacity(0).strokeColor(c).strokeWidth(lw * 0.7).layer("CHARACTER")).build());
-      }
-      break;
-    }
-    default: // "rect" and anything unknown
-      main = buildShape().id(mainId).shapeType("RECTANGLE").width(w).height(h).position({ x, y })
-        .fillColor(c).fillOpacity(0).strokeColor(c).strokeWidth(lw * 1.2).layer("DRAWING");
-  }
-  main = main.id(mainId).name(o.label || o.type).locked(locked).metadata({ [OBJ]: m });
-  if (o.rot) main = main.rotation(o.rot);
-  if (o.hidden) main = main.visible(false);
-  items.unshift(main.build());
-
-  if (o.dead && canBeDead(o.type)) items.push(deadMarker(mainId, markerShape(o.type, !!im), { x, y, w, h }, dpi));
-  const lt = sharedLabel(m);
-  if (o.type !== "text" && lt) items.push(labelItem(mainId, lt, x, y + h + dpi * LABEL_GAP, dpi, o.dead));
-  return items;
-}
-const canBeDead = (type) => !["text", "zone", "rect", "mat", "grenade"].includes(type);
-const markerShape = (type, isImage) => (type === "token" || (isImage && type !== "bloom") ? "circle" : "rect");
-
-function deadMarker(mainId, shape, box, dpi) {
-  const { x, y, w, h } = box;
-  const b = shape === "circle"
-    ? buildShape().shapeType("CIRCLE").width(w * 0.7).height(h * 0.7).position({ x: x + w / 2, y: y + h / 2 })
-    : buildShape().shapeType("RECTANGLE").width(w * 0.84).height(h * 0.84).position({ x: x + w * 0.08, y: y + h * 0.08 });
-  return b.fillColor("#0c0c10").fillOpacity(0.35).strokeColor("#0c0c10").strokeWidth(Math.max(3, dpi * 0.1))
-    .attachedTo(mainId).locked(true).disableHit(true).layer("ATTACHMENT").metadata({ [CHILD]: mainId, [ROLE]: "dead" }).build();
-}
-function labelItem(mainId, text, x, y, dpi, dim) {
-  return buildText().plainText(text).textType("PLAIN").width("AUTO").height("AUTO").fontSize(Math.max(12, dpi * LABEL_SIZE)).fontWeight(600)
-    .fillColor(dim ? "#8c90a0" : "#e9ebf2").strokeColor("#0c0c10").strokeWidth(Math.max(1, dpi * 0.02)).position({ x, y })
-    .attachedTo(mainId).locked(true).disableHit(true).layer("TEXT").metadata({ [CHILD]: mainId, [ROLE]: "label" }).build();
-}
 
 async function buildScene(scene) {
   if (!scene || !Array.isArray(scene.objects)) throw new Error("That text isn't a scene. It needs an \"objects\" list.");
@@ -180,18 +66,6 @@ async function sceneOrigin() {
   return { ox: meta.ox || 0, oy: meta.oy || 0, cols: meta.cols || 10, rows: meta.rows || 10 };
 }
 
-/* ---------- Items -> scene ---------- */
-function itemToObj(it, dpi, ox, oy) {
-  const m = it.metadata[OBJ];
-  const b = pieceBox(it, dpi);
-  const o = { ...m, x: round(b.x / dpi - ox), y: round(b.y / dpi - oy), w: round(b.w / dpi), h: round(b.h / dpi) };
-  if (m.img) o.image = m.img;
-  delete o.img;
-  o.hidden = !it.visible;
-  o.locked = !!it.locked;
-  if (it.rotation) o.rot = Math.round(it.rotation);
-  return o;
-}
 async function exportScene() {
   const dpi = await OBR.scene.grid.getDpi();
   const meta = (await OBR.scene.getMetadata())[SCENE] || {};
@@ -204,77 +78,6 @@ async function exportScene() {
     return o;
   });
   return { name: meta.name || "Owlbear board", cols: meta.cols, rows: meta.rows, round: meta.round || 1, status: meta.status || "", objects };
-}
-
-/* ---------- Changing one piece ---------- */
-async function setPiece(id, patch) {
-  const dpi = await OBR.scene.grid.getDpi();
-  const [it] = await OBR.scene.items.getItems([id]);
-  if (!it) return;
-  const m = { ...it.metadata[OBJ], ...patch };
-  await OBR.scene.items.updateItems([id], (ds) => { for (const d of ds) d.metadata[OBJ] = m; });
-  await syncDecor({ ...it, metadata: { ...it.metadata, [OBJ]: m } }, dpi);
-}
-// Keeps the shared name label and the dead marker in step with the piece's data.
-async function syncDecor(it, dpi) {
-  const m = it.metadata[OBJ];
-  const kids = await OBR.scene.items.getItems((i) => i.metadata && i.metadata[CHILD] === it.id);
-  const b = pieceBox(it, dpi);
-  const label = kids.find((k) => k.metadata[ROLE] === "label");
-  const text = m.type === "text" ? "" : sharedLabel(m);
-  if (text && label) {
-    if (label.text.plainText !== text || label.text.style.fillColor !== (m.dead ? "#8c90a0" : "#e9ebf2"))
-      await OBR.scene.items.updateItems([label.id], (ds) => { for (const d of ds) { d.text.plainText = text; d.text.style.fillColor = m.dead ? "#8c90a0" : "#e9ebf2"; } });
-  } else if (text) {
-    await OBR.scene.items.addItems([labelItem(it.id, text, b.x, b.y + b.h + dpi * LABEL_GAP, dpi, m.dead)]);
-  } else if (label) {
-    await OBR.scene.items.deleteItems([label.id]);
-  }
-  const marker = kids.find((k) => k.metadata[ROLE] === "dead");
-  if (m.dead && !marker && canBeDead(m.type)) await OBR.scene.items.addItems([deadMarker(it.id, markerShape(m.type, it.type === "IMAGE"), b, dpi)]);
-  else if (!m.dead && marker) await OBR.scene.items.deleteItems([marker.id]);
-}
-async function setHidden(id, hidden) {
-  await OBR.scene.items.updateItems([id], (ds) => { for (const d of ds) d.visible = !hidden; });
-}
-// Replaces a piece with a freshly built one (used to swap between drawn shape and linked image).
-async function rebuildPiece(id, patch) {
-  const dpi = await OBR.scene.grid.getDpi();
-  const [it] = await OBR.scene.items.getItems([id]);
-  if (!it) return null;
-  const o = { ...itemToObj(it, dpi, 0, 0), ...patch };
-  if (patch && "img" in patch) o.image = patch.img;
-  const kids = await OBR.scene.items.getItems((i) => i.metadata && i.metadata[CHILD] === id);
-  const items = buildPiece(o, dpi, 0, 0);
-  await OBR.scene.items.deleteItems([id, ...kids.map((k) => k.id)]);
-  await OBR.scene.items.addItems(items);
-  if (openIds.has(id)) { openIds.delete(id); openIds.add(items[0].id); }
-  return items[0].id;
-}
-
-/* ---------- Images ---------- */
-async function pickFromAssets() {
-  const res = await OBR.assets.downloadImages(false, "", "CHARACTER");
-  if (!res || !res.length) return null;
-  const a = res[0];
-  return { url: a.image.url, mime: a.image.mime, width: a.image.width, height: a.image.height, name: a.name };
-}
-async function pickFromSelection() {
-  const sel = await OBR.player.getSelection();
-  if (!sel || !sel.length) return null;
-  const its = await OBR.scene.items.getItems(sel);
-  const img = its.find((i) => i.type === "IMAGE");
-  return img ? { url: img.image.url, mime: img.image.mime, width: img.image.width, height: img.image.height, name: img.name } : null;
-}
-async function linkImage(name, img) {
-  const key = normKey(name);
-  if (!key) { say("Give the image a name first (the piece's name on the map)."); return 0; }
-  await saveRoom({ images: { ...room.images, [key]: { url: img.url, mime: img.mime, width: img.width, height: img.height, name: name.trim() } } });
-  // Swap every piece with that name (that hasn't opted out) over to the image.
-  const matches = await OBR.scene.items.getItems((i) => i.metadata && i.metadata[OBJ] && !NO_LABEL_IMAGE.includes(i.metadata[OBJ].type) && i.metadata[OBJ].type !== "text"
-    && (normKey(i.metadata[OBJ].img) === key || (!i.metadata[OBJ].noImg && normKey(i.metadata[OBJ].label) === key)));
-  for (const it of matches) await rebuildPiece(it.id, { img: key, noImg: false });
-  return matches.length;
 }
 
 /* ---------- Piece list ---------- */
@@ -410,15 +213,22 @@ function detail(it) {
 
   // Image
   if (m.type !== "text") {
-    const libEntry = m.img && room.images[m.img];
+    const cur = m.imgData || (m.img && room.images[m.img]);
+    const key = pieceKey(m, id);
     const imgRow = el("div", { class: "row" });
-    if (libEntry) imgRow.append(el("img", { class: "thumb", src: libEntry.url, alt: "" }));
-    imgRow.append(
-      el("button", { class: "small", onclick: async () => { try { const img = await pickFromAssets(); if (!img) return; const n = await linkImage(m.label || m.id, img); say(`Linked. ${n} piece${n === 1 ? "" : "s"} now use the image.`, "SUCCESS"); } catch (e) { console.error("[Workshop] image picker:", e); say("Couldn't link the image: " + why(e), "ERROR"); } } }, libEntry ? "Change image" : "Choose image"),
-      el("button", { class: "small", onclick: async () => { try { const img = await pickFromSelection(); if (!img) { say("Select an image on the map first (click it), then press this.", "WARNING"); return; } const n = await linkImage(m.label || m.id, img); say(`Linked. ${n} piece${n === 1 ? "" : "s"} now use the image.`, "SUCCESS"); } catch (e) { console.error("[Workshop] link:", e); say("Couldn't link the image: " + why(e), "ERROR"); } } }, "Use selected"));
-    if (m.img) imgRow.append(el("button", { class: "small", onclick: async () => { await rebuildPiece(id, { img: null, noImg: true }); say("Back to the drawn piece. The image stays in Linked images."); } }, "Remove"));
-    else if (m.noImg && room.images[normKey(m.label)]) imgRow.append(el("button", { class: "small", onclick: async () => { await rebuildPiece(id, { img: normKey(m.label), noImg: false }); } }, "Use linked image"));
-    box.append(el("div", {}, el("div", { class: "lbl" }, "Image" + (m.label ? ` (linked to the name “${m.label}”)` : "")), imgRow));
+    if (cur) imgRow.append(el("img", { class: "thumb", src: cur.url, alt: "" }));
+    imgRow.append(el("button", { class: "small", title: "Click an image on the map first, then press this",
+      onclick: async () => {
+        try {
+          const img = await pickFromSelection();
+          if (!img) { say("Click an image on the map first, then press this. (Or right-click the image → What should use this image?)", "WARNING"); return; }
+          const n = m.label ? await linkImage(m.label, img) : (await applyImage([id], img, true)).length;
+          say(`Done. ${n} piece${n === 1 ? "" : "s"} now use the image.`, "SUCCESS");
+        } catch (e) { console.error("[Workshop] link:", e); say("Couldn't use the image: " + why(e), "ERROR"); }
+      } }, cur ? "Replace with selected" : "Use selected image"));
+    if (cur) imgRow.append(el("button", { class: "small", onclick: async () => { await rebuildPiece(id, { img: null, imgData: null, noImg: true }); say("Back to the drawn piece. The link stays in Linked images."); } }, "Remove"));
+    else if (m.noImg && room.images[key]) imgRow.append(el("button", { class: "small", onclick: async () => { await rebuildPiece(id, { img: key, imgData: null, noImg: false }); } }, "Use linked image"));
+    box.append(el("div", {}, el("div", { class: "lbl" }, "Image" + (m.label ? ` (for everything named “${m.label}”)` : "")), imgRow));
   }
   return box;
 }
@@ -526,7 +336,7 @@ OBR.onReady(async () => {
     let img;
     try { img = await getter(); } catch (e) { console.error("[Workshop] image picker:", e); say("Couldn't get the image: " + why(e), "ERROR"); return; }
     if (!img) { if (emptyMsg) say(emptyMsg, "WARNING"); return; }
-    const name = $("libName").value.trim() || img.name || "";
+    const name = $("libName").value.trim();
     if (!name) { say("Type the name to link this image to (for example Mei), then try again.", "WARNING"); $("libName").focus(); return; }
     try {
       const n = await linkImage(name, img);
@@ -534,7 +344,6 @@ OBR.onReady(async () => {
       say(`Linked “${name}”.` + (n ? ` ${n} piece${n === 1 ? "" : "s"} on the map now use it.` : " It will be used the next time a piece with that name is built."), "SUCCESS");
     } catch (e) { console.error("[Workshop] link:", e); say("Couldn't save the link: " + why(e), "ERROR"); }
   };
-  $("libPick").onclick = () => libLink(pickFromAssets, "");
   $("libSel").onclick = () => libLink(pickFromSelection, "Select an image on the map first (click it), then press this.");
 
   // Settings

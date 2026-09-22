@@ -120,12 +120,10 @@
       <p class="note" style="margin:0">A linked image replaces the drawn piece for anything with that name, now and in every scene you build later.</p>
       <ul class="lib" id="lib"></ul>
       <p class="muted" id="noLib" style="margin:0">No images linked yet.</p>
+      <p class="note" style="margin:0">To add one: right-click an image on the map → <b>What should use this image?</b> and tick the pieces. Or type a name here, click an image on the map, and press the button.</p>
       <div class="row">
-        <input type="text" id="libName" placeholder="Name on the map, e.g. Mei (optional)" aria-label="Name to link an image to">
-      </div>
-      <div class="row">
-        <button id="libPick">Choose from my Owlbear images</button>
-        <button id="libSel">Use the selected map item</button>
+        <input type="text" id="libName" placeholder="Name on the map, e.g. Mei" aria-label="Name to link an image to">
+        <button id="libSel">Use selected image</button>
       </div>
     </div>
   </details>
@@ -169,6 +167,6 @@
 
   <div class="msg" id="msg" aria-live="polite"></div>
 </main>
-<script type="module" src="loader.js?v=21"></script>
+<script type="module" src="loader.js?v=22"></script>
 </body>
 </html>

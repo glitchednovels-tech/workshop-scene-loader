@@ -1,8 +1,8 @@
 // Runs on every screen in the room (GM and players).
 // Draws the exact-HP line under each piece, only on screens allowed to see it.
 // These labels are "local" items: they exist on this screen alone and are never shared.
-import OBR, { buildText } from "./obr-sdk.js?v=20";
-import { OBJ, HPL, LABEL_GAP, LABEL_SIZE, hpVisibleTo, hpColour, pieceBox, sharedLabel } from "./common.js?v=20";
+import OBR, { buildText } from "./obr-sdk.js?v=22";
+import { KEY, OBJ, HPL, LABEL_GAP, LABEL_SIZE, hpVisibleTo, hpColour, pieceBox, sharedLabel } from "./common.js?v=22";
 
 let me = { id: "", name: "", role: "PLAYER" };
 let timer = null, running = false, again = false;
@@ -64,7 +64,15 @@ async function reconcile() {
   }
 }
 
+const BASE = new URL(".", import.meta.url).href;
+
 OBR.onReady(async () => {
+  // Right-click an image → "What should use this image?" (GM only). Opens a list of the loaded pieces to tick.
+  OBR.contextMenu.create({
+    id: KEY + "/use-image",
+    icons: [{ icon: BASE + "icon-image.svg", label: "What should use this image?", filter: { roles: ["GM"], max: 1, every: [{ key: "type", value: "IMAGE" }] } }],
+    embed: { url: BASE + "use-image.html?v=22", height: 440 },
+  }).catch((e) => console.warn("[Workshop] context menu:", e));
   me = { id: await OBR.player.getId(), name: await OBR.player.getName(), role: await OBR.player.getRole() };
   OBR.player.onChange((p) => {
     if (p.role !== me.role || p.name !== me.name || p.id !== me.id) { me = { id: p.id, name: p.name, role: p.role }; schedule(); }
