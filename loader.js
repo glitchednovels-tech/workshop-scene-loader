@@ -1,12 +1,12 @@
 // Workshop Scene Loader — an Owlbear Rodeo extension (panel).
 // Turns "War Table" scene text (positions in grid squares) into Owlbear items, and back,
 // and gives the GM control over what players can see: exact HP, revealed condition, hidden pieces.
-import OBR from "./obr-sdk.js?v=30";
-import { OBJ, CHILD, SCENE, HP_VIS, DEFAULT_CONDITIONS, normKey, sortConditions, detectCondition, hpVisibleTo } from "./common.js?v=30";
+import OBR from "./obr-sdk.js?v=31";
+import { OBJ, CHILD, SCENE, HP_VIS, DEFAULT_CONDITIONS, normKey, sortConditions, detectCondition, hpVisibleTo } from "./common.js?v=31";
 import {
   room, loadRoom, saveRoom, conditions, CREATURE, pieceKey, buildPiece, canBeDead, itemToObj,
   setPiece, syncDecor, setHidden, rebuildPiece as rebuildRaw, pickFromSelection, linkImage, applyImage, openCombatWindow,
-} from "./pieces.js?v=30";
+} from "./pieces.js?v=31";
 const $ = (id) => document.getElementById(id);
 // Rebuilding gives a piece a new id; keep its card open.
 async function rebuildPiece(id, patch) { const nid = await rebuildRaw(id, patch); if (nid && openIds.has(id)) { openIds.delete(id); openIds.add(nid); } return nid; }
@@ -323,7 +323,7 @@ OBR.onReady(async () => {
     catch (e) { say("Couldn't load the example file."); }
   };
   $("clearBtn").onclick = async () => {
-    const all = await OBR.scene.items.getItems((i) => i.metadata && (i.metadata[OBJ] || i.metadata[CHILD]));
+    const all = await OBR.scene.items.getItems((i) => i.metadata && (i.metadata[OBJ] || i.metadata[CHILD] || i.metadata["com.workshop.scene-loader/aoe"]));
     const adopted = all.filter((i) => i.metadata[OBJ] && i.metadata[OBJ].adopted);
     const adoptedIds = new Set(adopted.map((i) => i.id));
     const mine = all.filter((i) => !adoptedIds.has(i.id));

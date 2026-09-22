@@ -6,6 +6,7 @@ export const ROLE = KEY + "/role";   // "label" | "dead" on a child
 export const SCENE = KEY + "/scene"; // scene metadata (name, round, status, origin)
 export const ROOM = KEY + "/room";   // room metadata (settings, condition list, image library)
 export const HPL = KEY + "/hp";      // local (per-screen) HP label
+export const AOE = KEY + "/aoe";     // area template (circle, square, line) placed by the combat window
 
 export const HP_VIS = { gm: "GM only", some: "GM + chosen players", all: "Everyone" };
 

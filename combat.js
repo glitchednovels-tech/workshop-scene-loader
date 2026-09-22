@@ -1,10 +1,10 @@
 // Workshop combat window (GM). Rounds and turns, turn order, start/end-of-turn effects, the active
 // combatant's sheet, the attack → hit → reaction → damage flow, resource pools and manual overrides.
 // Rules math lives in engine.js; sheets come from the combat pack generated from the Obsidian vault.
-import OBR from "./obr-sdk.js?v=30";
-import * as E from "./engine.js?v=30";
-import { KEY, OBJ, CHILD } from "./common.js?v=30";
-import { setPiece, COMBAT_POPOVER } from "./pieces.js?v=30";
+import OBR, { buildShape } from "./obr-sdk.js?v=31";
+import * as E from "./engine.js?v=31";
+import { KEY, OBJ, CHILD, AOE } from "./common.js?v=31";
+import { setPiece, COMBAT_POPOVER } from "./pieces.js?v=31";
 
 const CMB = KEY + "/combat";                 // scene metadata: round, turn, order, areas
 const LS_PACK = "wsl.combatPack.v1", LS_RULES = "wsl.combatRules.v1";
@@ -267,13 +267,94 @@ async function processTurnPhase(slot, when) {
     // areas: "when starting your turn in X radius"
     if (when === "start") for (const a of combat.areas || []) {
       if ((a.trigger || "start") !== "start") continue;
-      const dist = await distanceFeet(a.anchorId, id);
-      if (dist !== null && dist <= a.radius) prompts.push({ key: uid(), id, name: `${a.name}: starts turn inside (${Math.round(dist)} ft ≤ ${a.radius} ft)`, area: a, when, kind: "area" });
+      const inside = a.templateId ? await inTemplate(a.templateId, id) : ((await distanceFeet(a.anchorId, id)) ?? Infinity) <= a.radius;
+      if (inside) prompts.push({ key: uid(), id, name: `${a.name}: starts turn inside the area`, area: a, when, kind: "area" });
     }
   }
   for (const l of log) logLine(l);
   return log;
 }
+/* ---------- Area templates (circle, square/cube, line) ---------- */
+// A template is a normal, movable Owlbear shape. Circles are positioned by their centre; squares and lines are
+// rectangles that rotate around their corner. Lines start at the caster, 5 ft wide unless the sheet says otherwise.
+const pxPerFt = () => dpi / gridFeet;
+function areaDims(ar) {
+  const shape = ar.shape || (ar.radius ? "circle" : "square");
+  return { shape, radius: ar.radius || 0, size: ar.size || 0, length: ar.length || 0, width: ar.width || 5 };
+}
+function areaText(ar) {
+  const d = areaDims(ar);
+  return d.shape === "circle" ? `${d.radius} ft radius` : d.shape === "line" ? `${d.length} ft × ${d.width} ft line` : `${d.size} ft square`;
+}
+async function centreOf(id) {
+  const b = await OBR.scene.items.getItemBounds([id]);
+  return { x: (b.min.x + b.max.x) / 2, y: (b.min.y + b.max.y) / 2, b };
+}
+async function placeTemplate(ar, originId, aimId, name) {
+  const d = areaDims(ar), px = pxPerFt();
+  const o = await centreOf(originId);
+  let item;
+  const meta = { [AOE]: { ...d, name: name || ar.name || "Area" } };
+  if (d.shape === "circle") {
+    const r = d.radius * px;
+    item = buildShape().shapeType("CIRCLE").width(r * 2).height(r * 2).position({ x: o.x, y: o.y });
+  } else if (d.shape === "line") {
+    const L = d.length * px, W = d.width * px;
+    let ang = 0;
+    if (aimId) { const t = await centreOf(aimId); ang = Math.atan2(t.y - o.y, t.x - o.x) * 180 / Math.PI; }
+    item = buildShape().shapeType("RECTANGLE").width(L).height(W).position(lineCorner(o, ang, W)).rotation(ang);
+  } else {
+    const S = d.size * px;
+    item = buildShape().shapeType("RECTANGLE").width(S).height(S).position({ x: o.x - S / 2, y: o.y - S / 2 });
+  }
+  const built = item.fillColor("#f09040").fillOpacity(0.18).strokeColor("#f09040").strokeOpacity(0.9).strokeWidth(Math.max(2, px * 0.4)).strokeDash([px * 1.2, px * 0.6])
+    .layer("DRAWING").locked(false).name(`${meta[AOE].name} (${areaText(ar)})`).metadata(meta).build();
+  await OBR.scene.items.addItems([built]);
+  return built.id;
+}
+// the rectangle's corner so that its centre line starts at `o` and points along `ang`
+function lineCorner(o, ang, W) { const a = ang * Math.PI / 180; return { x: o.x + Math.sin(a) * W / 2, y: o.y - Math.cos(a) * W / 2 }; }
+async function aimTemplate(tplId, originId, aimId) {
+  const [t] = await OBR.scene.items.getItems([tplId]); if (!t) return;
+  const o = await centreOf(originId), a = await centreOf(aimId);
+  const ang = Math.atan2(a.y - o.y, a.x - o.x) * 180 / Math.PI;
+  const W = t.height * Math.abs(t.scale?.y || 1);
+  await OBR.scene.items.updateItems([tplId], (ds) => { for (const x of ds) { x.rotation = ang; x.position = lineCorner(o, ang, W); } });
+}
+async function rotateTemplate(tplId, deg) {
+  await OBR.scene.items.updateItems([tplId], (ds) => {
+    for (const x of ds) {
+      if (x.shapeType !== "RECTANGLE") continue;
+      const W = x.height * Math.abs(x.scale?.y || 1), a0 = (x.rotation || 0) * Math.PI / 180;
+      const start = { x: x.position.x - Math.sin(a0) * W / 2, y: x.position.y + Math.cos(a0) * W / 2 }; // centre-line start stays put
+      x.rotation = deg; x.position = lineCorner(start, deg, W);
+    }
+  });
+}
+// Is any part of a combatant's token inside the template?
+async function inTemplate(tplId, id) {
+  const [t] = await OBR.scene.items.getItems([tplId]);
+  if (!t) return false;
+  let b; try { b = await OBR.scene.items.getItemBounds([id]); } catch (e) { return false; }
+  return templateHits(t, b);
+}
+export function templateHits(t, b) {
+  const cx = (b.min.x + b.max.x) / 2, cy = (b.min.y + b.max.y) / 2;
+  const sx = Math.abs(t.scale?.x || 1), sy = Math.abs(t.scale?.y || 1);
+  if (t.shapeType === "CIRCLE") {
+    const r = (t.width * sx) / 2;
+    const nx = Math.max(b.min.x, Math.min(t.position.x, b.max.x)), ny = Math.max(b.min.y, Math.min(t.position.y, b.max.y));
+    return Math.hypot(t.position.x - nx, t.position.y - ny) <= r + 0.5;
+  }
+  // rectangle (square or line): move the token centre into the template's own frame, then pad by half the token
+  const a = -(t.rotation || 0) * Math.PI / 180;
+  const dx = cx - t.position.x, dy = cy - t.position.y;
+  const lx = dx * Math.cos(a) - dy * Math.sin(a), ly = dx * Math.sin(a) + dy * Math.cos(a);
+  const pad = Math.min(b.max.x - b.min.x, b.max.y - b.min.y) / 2;
+  return lx >= -pad && lx <= t.width * sx + pad && ly >= -pad && ly <= t.height * sy + pad;
+}
+async function removeTemplate(tplId) { if (tplId) await OBR.scene.items.deleteItems([tplId]).catch(() => {}); }
+
 async function distanceFeet(anchorId, id) {
   try {
     const [a, b] = await Promise.all([OBR.scene.items.getItemBounds([anchorId]), OBR.scene.items.getItemBounds([id])]);
@@ -306,7 +387,9 @@ async function advance() {
   const nx = E.nextTurn({ round: combat.round, turn: combat.turn, order: combat.slots });
   combat.round = nx.round; combat.turn = nx.turn;
   if (nx.newRound) {
-    combat.areas = (combat.areas || []).map((a) => ({ ...a, rounds: a.rounds - 1 })).filter((a) => a.rounds > 0);
+    const left = (combat.areas || []).map((a) => ({ ...a, rounds: a.rounds - 1 }));
+    for (const a of left) if (a.rounds <= 0) { await removeTemplate(a.templateId); logLine(`${a.name} ended`); }
+    combat.areas = left.filter((a) => a.rounds > 0);
     logLine(`— Round ${combat.round} —`);
   }
   await saveCombat();
@@ -499,7 +582,7 @@ function actionRow(id, a, reaction) {
   const row = h("div", { class: "col", style: "border-top:1px solid var(--line);padding-top:5px" },
     h("div", { class: "row", style: "justify-content:space-between" }, h("span", {}, h("b", {}, a.name), " ", h("span", { class: "tag" }, a.cost)),
       h("span", { class: "row" },
-        (a.attack || a.save || a.area) && !reaction ? h("button", { class: "go sm", onclick: () => startAttack(id, a.id) }, a.area ? "Throw / place" : "Attack") : null,
+        (a.attack || a.save || a.area) && !reaction ? h("button", { class: "go sm", onclick: () => startAttack(id, a.id) }, a.area ? (a.area.rounds ? "Throw / place" : "Area attack") : "Attack") : null,
         !(a.attack || a.save || a.area) || reaction ? h("button", { class: "sm", onclick: () => useAction(id, a) }, "Use") : null)),
     h("div", { class: "small mono" }, bits.join(" · ")),
     a.text ? h("div", { class: "note" }, a.text) : null);
@@ -513,7 +596,7 @@ function actionBits(a) {
   if (a.pen?.flat) bits.push(`ignores ${a.pen.flat} Armor`);
   if (a.pen?.pct) bits.push(`ignores ${a.pen.pct}% Armor`);
   if (a.pen?.stack) bits.push(`Armor Breaker +${a.pen.stack.per}/hit (max ${a.pen.stack.max})`);
-  if (a.area) bits.push(`${a.area.radius} ft area, ${a.area.rounds} rounds`);
+  if (a.area) bits.push(`${areaText(a.area)}${a.area.rounds ? `, ${a.area.rounds} rounds` : ""}`);
   if (a.uses) bits.push(a.uses.map((u) => `${u.amount} ${u.pool}`).join(", "));
   if (a.attacks) bits.push(`up to ${a.attacks}/turn`);
   if (a.chain) bits.push(`chains up to ${a.chain.max}`);
@@ -596,7 +679,8 @@ function startAttack(attackerId, actionId) {
   draft = { key: uid(), attackerId, actionId: actionId || "custom", custom: { name: "Custom attack", bonus: 0, dice: "1d8", type: "bludgeoning", penFlat: 0, penPct: 0 },
     adv: "normal", cover: 0, accExtra: 0, ignoreShield: false, payCosts: true, paidOnce: false, targets: [], consecutive: {}, shared: null, sharedExprs: null, areaPlaced: false };
   tab = "attack"; render();
-  addSelectedTargets(true);
+  const a = actionOf(draft);
+  if (!(a && a.area)) addSelectedTargets(true);
 }
 function actionOf(d) {
   if (!d) return null;
@@ -801,7 +885,7 @@ function attackTab() {
   const pick = h("select", { "aria-label": "Add a target" }, h("option", { value: "" }, "Add a target…"), ...ids.filter((id) => id !== d.attackerId).map((id) => h("option", { value: id }, nameOf(id))));
   pick.onchange = () => { if (pick.value) { addTarget(pick.value); render(); } };
   tc.append(h("div", { class: "row" }, h("button", { class: "sm", onclick: () => addSelectedTargets(false) }, "Add selected tokens"), pick,
-    h("button", { class: "sm", onclick: () => { draft = null; render(); } }, "Done / clear")));
+    h("button", { class: "sm", onclick: async () => { if (draft.tplId && !draft.areaPlaced) await removeTemplate(draft.tplId); draft = null; render(); } }, "Done / clear")));
   out.push(tc);
   for (const te of d.targets) out.push(targetCard(te, a));
   out.push(logCard());
@@ -809,16 +893,52 @@ function attackTab() {
 }
 
 function areaControls(a) {
-  const ar = a.area;
-  const box = h("div", { class: "prompt" }, h("b", {}, `Area: ${ar.name} — ${ar.radius} ft, ${ar.rounds} rounds, ${(ar.damage || []).map((x) => x.dice + " " + x.type).join(" + ")} at the start of each creature's turn inside${ar.save ? ` (${ar.save.attr} DC ${ar.save.dc}${ar.save.half ? " half" : ""})` : ""}`));
-  box.append(h("div", { class: "note" }, "Move a token (for example a grenade piece) to where it lands, select it, then press Place. Creatures that start their turn within range get a prompt."));
-  box.append(h("div", { class: "row" }, h("button", { class: "go sm", disabled: draft.areaPlaced, onclick: async () => {
-    const sel = (await OBR.player.getSelection()) || [];
-    if (!sel.length) { say("Select the token where the area is centred first.", "WARNING"); return; }
-    if (draft.payCosts && !draft.paidOnce) { if (!(await payCosts(draft.attackerId, a))) return; draft.paidOnce = true; }
-    combat.areas = [...(combat.areas || []), { id: uid(), name: ar.name, anchorId: sel[0], radius: ar.radius, rounds: ar.rounds, trigger: ar.trigger || "start", damage: ar.damage, save: ar.save, ownerId: draft.attackerId }];
-    await saveCombat(); draft.areaPlaced = true; logLine(`${nameOf(draft.attackerId)} placed ${ar.name} (${ar.radius} ft, ${ar.rounds} rounds)`); say(`${ar.name} placed.`); render();
-  } }, draft.areaPlaced ? "Placed" : "Place on selected token")));
+  const ar = a.area, d = areaDims(ar);
+  const persistent = !!ar.rounds;
+  const what = persistent
+    ? `${areaText(ar)} for ${ar.rounds} rounds: ${(ar.damage || a.damage || []).map((x) => x.dice + " " + x.type).join(" + ")} to anything starting its turn inside${ar.save ? ` (${ar.save.attr} DC ${ar.save.dc}${ar.save.half ? " half" : ""})` : ""}`
+    : `${areaText(ar)}: everything in it makes the save`;
+  const box = h("div", { class: "prompt" }, h("b", {}, `Area — ${what}`));
+  if (!draft.tplId) {
+    box.append(h("div", { class: "note" }, d.shape === "line" ? "The line starts at the caster. Select a token first to aim it at that token, or aim it afterwards." : "The template appears on the caster. Drag it on the map to where it should be."));
+    box.append(h("div", { class: "row" }, h("button", { class: "go sm", onclick: async () => {
+      try {
+        if (draft.payCosts && !draft.paidOnce) { if (!(await payCosts(draft.attackerId, a))) return; draft.paidOnce = true; }
+        const sel = ((await OBR.player.getSelection()) || []).filter((x) => x !== draft.attackerId);
+        draft.tplId = await placeTemplate(ar, draft.attackerId, d.shape === "line" ? sel[0] : null, a.name);
+        logLine(`${nameOf(draft.attackerId)}: ${a.name} template placed (${areaText(ar)})`);
+        render();
+      } catch (e) { say("Couldn't place the template: " + e.message, "ERROR"); }
+    } }, "Place template")));
+    return box;
+  }
+  const rot = h("input", { type: "number", "data-k": "tplrot", placeholder: "°", style: "width:64px", "aria-label": "Rotation in degrees" });
+  const row = h("div", { class: "row" });
+  if (d.shape !== "circle") row.append(
+    h("button", { class: "sm", onclick: async () => { const sel = ((await OBR.player.getSelection()) || []).filter((x) => x !== draft.tplId && x !== draft.attackerId); if (!sel.length) { say("Select the token to aim at first."); return; } await aimTemplate(draft.tplId, draft.attackerId, sel[0]); say("Aimed."); } }, "Aim at selected token"),
+    rot, h("button", { class: "sm", onclick: async () => { if (rot.value !== "") { await rotateTemplate(draft.tplId, +rot.value); } } }, "Rotate to °"));
+  box.append(h("div", { class: "note" }, "Drag or rotate the orange template on the map, then:"), row);
+  const act = h("div", { class: "row" });
+  if (persistent) {
+    act.append(h("button", { class: "primary sm", disabled: draft.areaPlaced, onclick: async () => {
+      combat.areas = [...(combat.areas || []), { id: uid(), name: ar.name || a.name, templateId: draft.tplId, anchorId: draft.tplId, radius: d.radius, rounds: ar.rounds, trigger: ar.trigger || "start", damage: ar.damage || a.damage, save: ar.save || a.save, ownerId: draft.attackerId }];
+      await saveCombat(); draft.areaPlaced = true; logLine(`${ar.name || a.name} is active (${areaText(ar)}, ${ar.rounds} rounds)`); say("Area confirmed. Anything starting its turn inside gets a prompt."); render();
+    } }, draft.areaPlaced ? "Area active" : `Confirm area (${ar.rounds} rounds)`));
+  } else {
+    const allies = h("input", { type: "checkbox", checked: true });
+    act.append(h("button", { class: "go sm", onclick: async () => {
+      let n = 0;
+      for (const id of combatantIds()) {
+        if (id === draft.attackerId || draft.targets.some((t) => t.id === id)) continue;
+        if (draft.noAllies && !!sheetOf(id)?.pc === !!sheetOf(draft.attackerId)?.pc) continue;
+        if (await inTemplate(draft.tplId, id)) { addTarget(id); n++; }
+      }
+      say(n ? `${n} target${n === 1 ? "" : "s"} in the area.` : "Nobody new is inside the template."); render();
+    } }, "Find targets in template"), h("label", { class: "small" }, allies, " friendly fire (allies count too)"));
+    allies.onchange = () => { draft.noAllies = !allies.checked; };
+  }
+  act.append(h("button", { class: "sm danger", onclick: async () => { const tid = draft.tplId; draft.tplId = null; draft.areaPlaced = false; combat.areas = (combat.areas || []).filter((x) => x.templateId !== tid); await saveCombat(); await removeTemplate(tid); render(); } }, "Remove template"));
+  box.append(act);
   return box;
 }
 
@@ -833,7 +953,7 @@ function targetCard(te, a) {
   const ai = armorFor(te);
   const info = [`Armor ${ai.before}${ai.cut ? ` − ${ai.cut} penetration = ${ai.armor}` : ""}${ai.ignoredParts.length ? ` (ignoring ${ai.ignoredParts.join(", ")})` : ""}`];
   if (acc.size) info.push(`${v.size} target: ${acc.size > 0 ? "+" : ""}${acc.size} Accuracy (in the roll)`);
-  card.append(h("div", { class: "muted" }, info.join(" · ")));
+  if (a?.attack) card.append(h("div", { class: "muted" }, info.join(" · ")));
 
   // 1) attack roll or save
   if (a?.attack) {
@@ -990,8 +1110,8 @@ function orderTab() {
   // areas
   const arc = h("div", { class: "card" }, h("h2", {}, "Areas on the map"));
   if (!(combat.areas || []).length) arc.append(h("span", { class: "muted" }, "None. Throwing a grenade (Attack tab) places one."));
-  for (const a of combat.areas || []) arc.append(h("div", { class: "row small" }, h("b", {}, a.name), `${a.radius} ft · ${a.rounds} rounds left · on ${nameOf(a.anchorId) || "a token"}`,
-    h("button", { class: "sm", onclick: async () => { a.rounds += 1; await saveCombat(); render(); } }, "+1"), h("button", { class: "sm danger", onclick: async () => { combat.areas = combat.areas.filter((x) => x !== a); await saveCombat(); render(); } }, "Remove")));
+  for (const a of combat.areas || []) arc.append(h("div", { class: "row small" }, h("b", {}, a.name), `${a.rounds} rounds left`,
+    h("button", { class: "sm", onclick: async () => { a.rounds += 1; await saveCombat(); render(); } }, "+1"), h("button", { class: "sm danger", onclick: async () => { combat.areas = combat.areas.filter((x) => x !== a); await saveCombat(); await removeTemplate(a.templateId); render(); } }, "Remove")));
   out.push(arc);
   return out;
 }
