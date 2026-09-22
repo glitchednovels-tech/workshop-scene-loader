@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workshop Scene Loader</title>
+<style>
+  :root{ --bg:#1f2130; --panel:#262a3b; --line:#3d4257; --ink:#e9ebf2; --ink2:#a3a8bd; --ink3:#737891; --cyan:#40d0e6; --green:#5ca014; --red:#f05050; --brass:#f0c83c; }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.45 "Segoe UI",system-ui,sans-serif}
+  main{padding:12px 14px;display:flex;flex-direction:column;gap:14px}
+  h1{font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--cyan);margin:0}
+  h2{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);margin:0 0 6px}
+  textarea{width:100%;height:120px;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:6px;font:11px/1.4 ui-monospace,Consolas,monospace;resize:vertical}
+  input[type=number]{width:64px;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:3px 6px}
+  button{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:5px 10px;cursor:pointer;font:inherit}
+  button:hover{border-color:var(--ink3)}
+  button.primary{background:var(--brass);color:#1f2130;border-color:var(--brass);font-weight:600}
+  button.danger{color:var(--red)}
+  button:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px solid var(--brass);outline-offset:1px}
+  .row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .muted{color:var(--ink3);font-size:12px}
+  .msg{min-height:18px;color:var(--brass);font-size:12px}
+  ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+  li{display:grid;grid-template-columns:1fr auto;gap:6px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:5px 8px}
+  li .name{font-weight:600}
+  li .hp{font-family:ui-monospace,Consolas,monospace;color:var(--ink2)}
+  li.dead .name{color:var(--ink3);text-decoration:line-through}
+  .ctl{display:flex;gap:4px;align-items:center}
+  .ctl button{padding:2px 7px}
+  [hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+  <h1>Workshop Scene Loader</h1>
+
+  <section id="gmTools">
+    <h2>Build a scene</h2>
+    <textarea id="sceneIn" placeholder="Paste the scene text Claude gave you here"></textarea>
+    <div class="row" style="margin-top:6px">
+      <label class="muted"><input type="checkbox" id="atCentre" checked> Build in the middle of my screen</label>
+    </div>
+    <div class="row" style="margin-top:6px" id="offRow">
+      <label class="muted" for="offX">Start at square</label>
+      <input type="number" id="offX" value="0" aria-label="Column offset"> <input type="number" id="offY" value="0" aria-label="Row offset">
+    </div>
+    <div class="row" style="margin-top:6px">
+      <button class="primary" id="buildBtn">Build on map</button>
+      <button id="exampleBtn">Load example</button>
+      <button class="danger" id="clearBtn">Remove loaded pieces</button>
+    </div>
+  </section>
+
+  <section id="moveTools">
+    <h2>Move the whole map</h2>
+    <div class="row">
+      <button id="mvLeft" aria-label="Move left">&larr;</button>
+      <button id="mvUp" aria-label="Move up">&uarr;</button>
+      <button id="mvDown" aria-label="Move down">&darr;</button>
+      <button id="mvRight" aria-label="Move right">&rarr;</button>
+      <label class="muted" for="mvStep">by</label>
+      <input type="number" id="mvStep" value="1" min="1" aria-label="Squares per step">
+      <span class="muted">squares</span>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <button id="mvCentre">Centre on my screen</button>
+      <button id="mvToSel">Top-left to selected item</button>
+    </div>
+    <p class="muted" style="margin:6px 0 0">For "Top-left to selected item", click any piece on your map first (for example a corner of your map art), then press the button.</p>
+  </section>
+
+  <section>
+    <h2>Pieces on the board</h2>
+    <ul id="pieces"></ul>
+    <p class="muted" id="noPieces">Nothing loaded yet.</p>
+  </section>
+
+  <section id="exportTools">
+    <h2>Send the board to Claude</h2>
+    <div class="row">
+      <button id="exportBtn">Export board</button>
+      <button id="copyBtn" hidden>Copy</button>
+    </div>
+    <textarea id="exportOut" readonly hidden style="margin-top:6px"></textarea>
+  </section>
+
+  <div class="msg" id="msg" aria-live="polite"></div>
+</main>
+<script type="module" src="loader.js?v=3"></script>
+</body>
+</html>
